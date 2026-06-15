@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import async_session
 from app.models import Provider, ModelMapping, RequestLog
+from app.utils import extract_usage
 
 
 async def resolve_provider(db: AsyncSession, model_id: str) -> tuple[Provider, ModelMapping] | None:
@@ -173,6 +174,14 @@ async def proxy_non_stream(
         response_body = {"error": {"type": "internal_error", "message": str(e)}}
         status_code = 500
 
+    # 填充 token 用量列
+    usage = extract_usage(response_body)
+    if usage:
+        log_entry.input_tokens = usage["input_tokens"]
+        log_entry.cache_hit_tokens = usage["cache_hit_tokens"]
+        log_entry.output_tokens = usage["output_tokens"]
+        log_entry.total_tokens = usage["total_tokens"]
+
     db.add(log_entry)
     await db.commit()
 
@@ -236,6 +245,13 @@ async def proxy_stream(
                             error_message=error_message,
                             client_ip=client_ip,
                         )
+                        usage = extract_usage(error_body)
+                        if usage:
+                            log_entry.input_tokens = usage["input_tokens"]
+                            log_entry.cache_hit_tokens = usage["cache_hit_tokens"]
+                            log_entry.output_tokens = usage["output_tokens"]
+                            log_entry.total_tokens = usage["total_tokens"]
+
                         db.add(log_entry)
                         await db.commit()
 
@@ -288,5 +304,13 @@ async def proxy_stream(
             error_message=error_message,
             client_ip=client_ip,
         )
+        # 填充 token 用量列
+        usage = extract_usage(aggregated_response)
+        if usage:
+            log_entry.input_tokens = usage["input_tokens"]
+            log_entry.cache_hit_tokens = usage["cache_hit_tokens"]
+            log_entry.output_tokens = usage["output_tokens"]
+            log_entry.total_tokens = usage["total_tokens"]
+
         db.add(log_entry)
         await db.commit()
