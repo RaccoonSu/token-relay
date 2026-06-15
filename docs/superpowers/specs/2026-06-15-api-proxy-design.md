@@ -290,46 +290,244 @@ sse-starlette>=1.6.0
 
 ## 验证方式
 
-### 测试 Token
-
-使用阿里百炼的 Token 进行验证：
-
-```
-sk-sp-D.IPXMD.BIM0.MEUCIQDabakdrvPKNXOZI2qqtuA1vmLjBoUuBQ1U2elIQt117wIgEl7PRGYRJ7r8Q8U3jbIvTSBydWXaeN+6bHnJDxN++dg=
-```
-
-### 验证步骤
+### 前置条件
 
 1. 启动服务：`python main.py`
-2. 在前端页面配置阿里百炼供应商，填入上述 Token
-3. 添加模型映射，如 `qwen-max` → 阿里百炼
-4. 发送非流式测试请求：
+2. 在前端页面配置好供应商和对应的 API Key
+3. 添加模型映射：`qwen3.7-max` → 阿里百炼，`deepseek-v4-flash` → DeepSeek
+
+### 验证矩阵
+
+共 4 个请求，2 个模型 × 2 种模式：
+
+| # | 模型 | 模式 | 验证重点 |
+|---|------|------|---------|
+| 1 | qwen3.7-max | 非流式 | 正常返回 + 日志存储完整 req/res |
+| 2 | qwen3.7-max | 流式 SSE | 流正常转发 + SSE 聚合为 JSON 存储 |
+| 3 | deepseek-v4-flash | 非流式 | 跨供应商路由正常 |
+| 4 | deepseek-v4-flash | 流式 SSE | 跨供应商流式路由 + 聚合 |
+
+### 请求体格式
+
+使用 Claude Code 实际发出的 Anthropic Messages API 格式，包含 system prompt、tools 定义和多轮消息：
+
+```json
+{
+  "model": "<MODEL_ID>",
+  "max_tokens": 16000,
+  "system": "You are a helpful AI assistant with access to tools. Respond in Chinese.",
+  "tools": [
+    {
+      "name": "Bash",
+      "description": "Execute a bash command in the shell.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": { "type": "string", "description": "The command to execute" }
+        },
+        "required": ["command"]
+      }
+    },
+    {
+      "name": "Read",
+      "description": "Read the contents of a file.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": { "type": "string", "description": "Absolute path to the file" }
+        },
+        "required": ["file_path"]
+      }
+    }
+  ],
+  "messages": [
+    { "role": "user", "content": "请帮我写一个 Python 脚本，读取当前目录下所有 .txt 文件的行数并汇总输出。" }
+  ]
+}
+```
+
+### 测试 1：qwen3.7-max 非流式
 
 ```bash
 curl -X POST http://localhost:5020/anthropic/v1/messages \
   -H "Content-Type: application/json" \
-  -H "x-api-key: your-relay-key" \
+  -H "x-api-key: <RELAY_API_KEY>" \
+  -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "qwen-max",
-    "max_tokens": 100,
-    "messages": [{"role": "user", "content": "你好"}]
+    "model": "qwen3.7-max",
+    "max_tokens": 16000,
+    "system": "You are a helpful AI assistant with access to tools. Respond in Chinese.",
+    "tools": [
+      {
+        "name": "Bash",
+        "description": "Execute a bash command in the shell.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string", "description": "The command to execute" }
+          },
+          "required": ["command"]
+        }
+      },
+      {
+        "name": "Read",
+        "description": "Read the contents of a file.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "file_path": { "type": "string", "description": "Absolute path to the file" }
+          },
+          "required": ["file_path"]
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "请帮我写一个 Python 脚本，读取当前目录下所有 .txt 文件的行数并汇总输出。" }
+    ]
   }'
 ```
 
-5. 发送流式测试请求：
+**通过标准**：
+- HTTP 200 返回
+- 响应包含 `type: "message"`, `role: "assistant"`, `content` 数组
+- 前端日志页面可查看完整请求体和响应体
+
+### 测试 2：qwen3.7-max 流式
 
 ```bash
 curl -X POST http://localhost:5020/anthropic/v1/messages \
   -H "Content-Type: application/json" \
-  -H "x-api-key: your-relay-key" \
+  -H "x-api-key: <RELAY_API_KEY>" \
+  -H "anthropic-version: 2023-06-01" \
   -d '{
-    "model": "qwen-max",
-    "max_tokens": 100,
+    "model": "qwen3.7-max",
+    "max_tokens": 16000,
     "stream": true,
-    "messages": [{"role": "user", "content": "你好"}]
+    "system": "You are a helpful AI assistant with access to tools. Respond in Chinese.",
+    "tools": [
+      {
+        "name": "Bash",
+        "description": "Execute a bash command in the shell.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string", "description": "The command to execute" }
+          },
+          "required": ["command"]
+        }
+      },
+      {
+        "name": "Read",
+        "description": "Read the contents of a file.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "file_path": { "type": "string", "description": "Absolute path to the file" }
+          },
+          "required": ["file_path"]
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "请帮我写一个 Python 脚本，读取当前目录下所有 .txt 文件的行数并汇总输出。" }
+    ]
   }'
 ```
 
-6. 在前端日志页面查看请求记录，确认：
-   - 非流式请求的完整入参出参已存储
-   - 流式请求的 SSE 已聚合为标准 JSON 格式存储
+**通过标准**：
+- 返回 SSE 流，依次收到 `message_start` → `content_block_start` → `content_block_delta`（多次）→ `content_block_stop` → `message_delta` → `message_stop` 事件
+- 前端日志页面中该请求的响应体为聚合后的完整 Anthropic Message JSON（包含所有 content block 的完整文本/tool_use 内容）
+
+### 测试 3：deepseek-v4-flash 非流式
+
+```bash
+curl -X POST http://localhost:5020/anthropic/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: <RELAY_API_KEY>" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "deepseek-v4-flash",
+    "max_tokens": 16000,
+    "system": "You are a helpful AI assistant with access to tools. Respond in Chinese.",
+    "tools": [
+      {
+        "name": "Bash",
+        "description": "Execute a bash command in the shell.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string", "description": "The command to execute" }
+          },
+          "required": ["command"]
+        }
+      },
+      {
+        "name": "Read",
+        "description": "Read the contents of a file.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "file_path": { "type": "string", "description": "Absolute path to the file" }
+          },
+          "required": ["file_path"]
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "请帮我写一个 Python 脚本，读取当前目录下所有 .txt 文件的行数并汇总输出。" }
+    ]
+  }'
+```
+
+**通过标准**：同测试 1，且前端日志显示供应商为 DeepSeek。
+
+### 测试 4：deepseek-v4-flash 流式
+
+```bash
+curl -X POST http://localhost:5020/anthropic/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: <RELAY_API_KEY>" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "deepseek-v4-flash",
+    "max_tokens": 16000,
+    "stream": true,
+    "system": "You are a helpful AI assistant with access to tools. Respond in Chinese.",
+    "tools": [
+      {
+        "name": "Bash",
+        "description": "Execute a bash command in the shell.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string", "description": "The command to execute" }
+          },
+          "required": ["command"]
+        }
+      },
+      {
+        "name": "Read",
+        "description": "Read the contents of a file.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "file_path": { "type": "string", "description": "Absolute path to the file" }
+          },
+          "required": ["file_path"]
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "请帮我写一个 Python 脚本，读取当前目录下所有 .txt 文件的行数并汇总输出。" }
+    ]
+  }'
+```
+
+**通过标准**：同测试 2，且前端日志显示供应商为 DeepSeek。
+
+### 全部通过条件
+
+- 4 个请求均返回 HTTP 200（非流式）或正常 SSE 流（流式）
+- 前端日志页面显示 4 条记录，供应商分别标注为阿里百炼和 DeepSeek
+- 非流式请求的日志详情中包含完整的请求体和响应体 JSON
+- 流式请求的日志详情中，响应体为聚合后的标准 Anthropic Message JSON 格式（包含 `type: "message"`, `content` 数组等完整字段）
