@@ -164,8 +164,92 @@ curl -X POST http://localhost:5020/anthropic/v1/messages \
 | `/api/providers/{id}` | PUT/DELETE | Update / delete a provider |
 | `/api/model-mappings` | GET/POST | List / create model mappings |
 | `/api/model-mappings/{id}` | PUT/DELETE | Update / delete a mapping |
+| `/api/default-target` | GET/PUT | Get / set the real model that `token-relay-default` forwards to |
 | `/api/logs` | GET/DELETE | List logs / clear all logs |
 | `/api/logs/{id}` | GET | View log detail (full req/res) |
+
+## Claude Code Model Slot Configuration
+
+Claude Code switches models via the `/model` command, but only exposes **5 fixed slots**. Each slot can be mapped to any real model via an environment variable. Full example (`~/.claude/settings.json`):
+
+```jsonc
+{
+  "env": {
+    // Relay connection
+    "ANTHROPIC_AUTH_TOKEN": "your-relay-api-key",
+    "ANTHROPIC_BASE_URL": "http://localhost:5020/anthropic",
+
+    // 5 slot mappings
+    "ANTHROPIC_MODEL": "glm-5.2[1M]",                    // Default slot
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3.7-max[1M]",   // opus slot
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro[1M]", // sonnet slot
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",    // haiku slot
+    "ANTHROPIC_CUSTOM_MODEL_OPTION": "token-relay-default",  // 5th slot (dynamic)
+    "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "Token Relay Default",
+
+    // Misc
+    "API_TIMEOUT_MS": "3000000",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  }
+}
+```
+
+| Slot | Env Var | Notes |
+|------|---------|-------|
+| Default | `ANTHROPIC_MODEL` | Startup default model |
+| opus | `ANTHROPIC_DEFAULT_OPUS_MODEL` | Triggered by `/model opus` |
+| sonnet | `ANTHROPIC_DEFAULT_SONNET_MODEL` | Triggered by `/model sonnet` |
+| haiku | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | Triggered by `/model haiku` |
+| Custom | `ANTHROPIC_CUSTOM_MODEL_OPTION` | One extra custom slot only |
+
+- **`[1M]` suffix**: Requests a 1M-token context window. The relay strips the suffix and forwards the base model name upstream, so you don't need a separate mapping with the suffix.
+- **Slot limit**: Claude Code does not support adding unlimited slots. If you have more than 5 models, use the `token-relay-default` mechanism below.
+
+## token-relay-default: Switch Any Model via Web UI
+
+### The Problem
+
+Claude Code only offers 5 fixed slots. Changing a slot mapping requires a restart. If you have 6+ models to switch between (e.g., two models each from Alibaba, Zhipu, and DeepSeek), 5 slots are not enough.
+
+### The Solution
+
+Pin the 5th slot (`ANTHROPIC_CUSTOM_MODEL_OPTION`) to a virtual ID `token-relay-default`. **The relay decides which real model this alias forwards to.** Switching happens in the relay's Web UI and takes effect instantly — **no Claude Code restart required**.
+
+```
+Claude Code  ──▶ model: "token-relay-default"
+                     │
+                     ▼
+            Token Relay looks up target (e.g. glm-5.1)
+                     │
+                     ▼
+            Rewrites model to "glm-5.1", forwards to Zhipu
+```
+
+### Setup
+
+1. **Configure the 5th slot in `~/.claude/settings.json`**:
+
+    ```json
+    "ANTHROPIC_CUSTOM_MODEL_OPTION": "token-relay-default",
+    "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "Token Relay Default"
+    ```
+
+2. **Restart Claude Code**. A **Token Relay Default** slot will appear in the `/model` picker. Select it.
+
+3. **Open the relay Web UI** (http://localhost:5020) → **Model Mappings** tab → the blue **Default Model** panel at the top:
+   - Pick the real model you want to forward to from the dropdown
+   - Click **Apply**
+   - Takes effect immediately, no Claude Code restart needed
+
+4. From then on, keep using the Token Relay Default slot in Claude Code. Whenever you want to switch models, just change the target in the Web UI.
+
+### How it Works Internally
+
+- When the relay receives a request with `model: "token-relay-default"`, it reads the `default_target_model_id` setting from the `app_settings` table
+- Rewrites the `model` field in the request body to the real target model ID
+- Resolves the provider via the normal mapping lookup and forwards the request
+- Returns a 400 error if no default target is configured
+- The Web UI exposes `GET/PUT /api/default-target` to read and write the target
 
 ## Access Control
 

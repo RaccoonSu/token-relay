@@ -52,3 +52,12 @@ class RequestLog(Base):
     client_ip = Column(String(50), nullable=True)
 
     provider = relationship("Provider", back_populates="logs")
+
+
+class AppSetting(Base):
+    """Simple key-value store for global app settings (e.g. default target)."""
+    __tablename__ = "app_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

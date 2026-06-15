@@ -2,7 +2,8 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Provider, ModelMapping
+from app.config import DEFAULT_TARGET_KEY
+from app.models import Provider, ModelMapping, AppSetting
 
 
 async def list_providers(db: AsyncSession) -> list[Provider]:
@@ -75,3 +76,27 @@ async def delete_mapping(db: AsyncSession, mapping_id: int) -> bool:
     result = await db.execute(delete(ModelMapping).where(ModelMapping.id == mapping_id))
     await db.commit()
     return result.rowcount > 0
+
+
+async def get_default_target(db: AsyncSession) -> str | None:
+    """Return the real model_id that the default alias currently points to."""
+    result = await db.execute(
+        select(AppSetting).where(AppSetting.key == DEFAULT_TARGET_KEY)
+    )
+    setting = result.scalar_one_or_none()
+    return setting.value if setting and setting.value else None
+
+
+async def set_default_target(db: AsyncSession, target_model_id: str | None) -> None:
+    """Set (or clear) the default alias target. Value must be an active mapping."""
+    setting = await db.get(AppSetting, DEFAULT_TARGET_KEY)
+    if target_model_id:
+        if setting:
+            setting.value = target_model_id
+        else:
+            setting = AppSetting(key=DEFAULT_TARGET_KEY, value=target_model_id)
+            db.add(setting)
+    else:
+        if setting:
+            setting.value = None
+    await db.commit()

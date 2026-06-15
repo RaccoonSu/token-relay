@@ -82,6 +82,16 @@ tr:hover { background: #f8fafc; }
 .model-list-item .model-id { font-family: monospace; color: #1e40af; }
 .model-list-item .model-name { color: #64748b; font-size: 12px; }
 .model-list-loading { padding: 16px; text-align: center; color: #94a3b8; }
+
+/* Default model panel */
+.default-panel { border: 2px solid #3b82f6; background: linear-gradient(135deg, #eff6ff 0%, #fff 100%); }
+.default-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.default-title { font-size: 16px; font-weight: 600; color: #1e3a8a; }
+.alias-pill { background: #1e293b; color: #93c5fd; padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+.default-body { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.default-body select { min-width: 280px; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+.default-hint { margin-top: 10px; font-size: 12px; color: #64748b; }
+.default-current { font-weight: 600; color: #1e40af; }
 </style>
 </head>
 <body>
@@ -127,6 +137,26 @@ tr:hover { background: #f8fafc; }
 
   <!-- Mappings Tab -->
   <div v-if="tab === 'mappings'">
+    <div class="card default-panel">
+      <div class="default-header">
+        <span class="default-title">默认模型</span>
+        <code class="alias-pill">token-relay-default</code>
+      </div>
+      <div class="default-body">
+        <span>转发到：</span>
+        <select v-model="defaultTargetModel">
+          <option value="">— 未设置 —</option>
+          <option v-for="m in activeMappings" :key="m.model_id" :value="m.model_id">
+            {{ m.model_id }}（{{ m.provider_name || '-' }}）
+          </option>
+        </select>
+        <button class="btn btn-primary btn-sm" @click="saveDefaultTarget()">应用</button>
+        <span v-if="defaultCurrentTarget" style="font-size:13px;color:#64748b;">
+          当前已应用：<span class="default-current">{{ defaultCurrentTarget }}</span>
+        </span>
+      </div>
+      <div class="default-hint">在 Claude Code 中选择「Token Relay Default」槽位即可使用；切换后即时生效，无需重启 Claude Code。</div>
+    </div>
     <div class="toolbar">
       <span>共 {{ mappings.length }} 个映射</span>
       <button class="btn btn-primary" @click="openMappingModal()">+ 新增映射</button>
@@ -163,7 +193,7 @@ tr:hover { background: #f8fafc; }
     <div class="card">
       <div class="table-scroll">
       <table v-if="logs.length">
-        <thead><tr><th>ID</th><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>耗时</th><th>类型</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>耗时</th><th>类型</th><th>输入Token</th><th>缓存命中</th><th>输出Token</th><th>总Token</th><th></th></tr></thead>
         <tbody>
           <template v-for="log in logs" :key="log.id">
             <tr class="clickable" @click="toggleLogDetail(log.id)">
@@ -174,10 +204,14 @@ tr:hover { background: #f8fafc; }
               <td><span :class="log.status_code < 400 ? 'status-ok' : 'status-err'">{{ log.status_code || '-' }}</span></td>
               <td>{{ log.duration_ms ? log.duration_ms + 'ms' : '-' }}</td>
               <td><span class="badge" :class="log.is_stream ? 'badge-blue' : 'badge-gray'">{{ log.is_stream ? '流式' : '非流式' }}</span></td>
+              <td>{{ log.usage ? log.usage.input_tokens : '-' }}</td>
+              <td>{{ log.usage ? log.usage.cache_hit_tokens : '-' }}</td>
+              <td>{{ log.usage ? log.usage.output_tokens : '-' }}</td>
+              <td>{{ log.usage ? log.usage.total_tokens : '-' }}</td>
               <td>{{ expandedLog === log.id ? '▲' : '▼' }}</td>
             </tr>
             <tr v-if="expandedLog === log.id" class="expand-row">
-              <td colspan="8">
+              <td colspan="12">
                 <div class="log-detail" v-if="logDetail">
                   <div class="log-detail-bar">
                     <div class="info">
@@ -299,11 +333,11 @@ tr:hover { background: #f8fafc; }
 </div>
 
 <script>
-const { createApp, ref, reactive, onMounted } = Vue
+const { createApp, ref, reactive, computed, onMounted } = Vue
 
 createApp({
   setup() {
-    const tab = ref('providers')
+    const tab = ref('mappings')
 
     // Providers
     const providers = ref([])
@@ -317,6 +351,11 @@ createApp({
     const providerModels = ref([])
     const fetchingModels = ref(false)
     const fetchModelsError = ref('')
+
+    // Default alias target (token-relay-default → real model)
+    const defaultTargetModel = ref('')
+    const defaultCurrentTarget = ref('')
+    const activeMappings = computed(() => mappings.value.filter(m => m.is_active))
 
     // Logs
     const logs = ref([])
@@ -371,6 +410,23 @@ createApp({
     async function loadMappings() {
       mappings.value = await api('/api/model-mappings')
       if (!providers.value.length) await loadProviders()
+      await loadDefaultTarget()
+    }
+
+    async function loadDefaultTarget() {
+      const data = await api('/api/default-target')
+      defaultTargetModel.value = data.target_model_id || ''
+      defaultCurrentTarget.value = data.target_model_id || ''
+    }
+
+    async function saveDefaultTarget() {
+      const target = defaultTargetModel.value || null
+      const data = await api('/api/default-target', {
+        method: 'PUT',
+        body: JSON.stringify({ target_model_id: target }),
+      })
+      defaultCurrentTarget.value = data.target_model_id || ''
+      alert(target ? `已将 token-relay-default 转发到 ${target}` : '已清除默认目标')
     }
 
     function openMappingModal(m = null) {
@@ -454,8 +510,9 @@ createApp({
 
     function formatTime(iso) {
       if (!iso) return '-'
-      const d = new Date(iso)
-      return d.toLocaleString('zh-CN')
+      // API 返回的是 UTC 时间但不带时区后缀，手动指定为 UTC
+      const d = new Date(iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z')
+      return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
     }
 
     const copyState = Vue.reactive({})
@@ -486,6 +543,8 @@ createApp({
       tab,
       providers, showKeys, providerModal, modalShowKey,
       mappings, mappingModal, providerModels, fetchingModels, fetchModelsError,
+      defaultTargetModel, defaultCurrentTarget, activeMappings,
+      loadDefaultTarget, saveDefaultTarget,
       logs, logsTotal, logsPage, logsSize, expandedLog, logDetail,
       loadProviders, openProviderModal, saveProvider, removeProvider,
       loadMappings, openMappingModal, saveMapping, removeMapping, fetchProviderModels,

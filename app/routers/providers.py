@@ -3,11 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import DEFAULT_MODEL_ALIAS
 from app.database import get_db
 from app.services.provider_service import (
     list_providers, get_provider, create_provider, update_provider, delete_provider,
     list_mappings, create_mapping, update_mapping, delete_mapping,
+    get_default_target, set_default_target,
 )
+from app.services.proxy_service import resolve_provider
 
 router = APIRouter(prefix="/api")
 
@@ -38,6 +41,10 @@ class MappingUpdate(BaseModel):
     model_id: str | None = None
     provider_id: int | None = None
     is_active: bool | None = None
+
+
+class DefaultTargetUpdate(BaseModel):
+    target_model_id: str | None = None
 
 
 # --- Provider endpoints ---
@@ -147,6 +154,30 @@ async def remove_mapping(mapping_id: int, db: AsyncSession = Depends(get_db)):
     if not deleted:
         raise HTTPException(status_code=404, detail="Mapping not found")
     return {"ok": True}
+
+
+# --- Default alias target endpoints ---
+# The alias DEFAULT_MODEL_ALIAS is exposed to Claude Code as a fixed slot; these
+# endpoints control which real mapping it forwards to.
+
+@router.get("/default-target")
+async def get_default(db: AsyncSession = Depends(get_db)):
+    target = await get_default_target(db)
+    return {"alias": DEFAULT_MODEL_ALIAS, "target_model_id": target}
+
+
+@router.put("/default-target")
+async def put_default(data: DefaultTargetUpdate, db: AsyncSession = Depends(get_db)):
+    target = data.target_model_id
+    if target:
+        # The target must resolve to an active mapping/provider.
+        if not await resolve_provider(db, target):
+            raise HTTPException(
+                status_code=400,
+                detail=f"目标模型 '{target}' 不存在或未启用",
+            )
+    await set_default_target(db, target)
+    return {"alias": DEFAULT_MODEL_ALIAS, "target_model_id": target}
 
 
 # --- Known provider model list endpoints ---

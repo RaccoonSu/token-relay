@@ -219,3 +219,5 @@ __marimo__/
 
 # Token Relay data
 data/
+
+.claude/

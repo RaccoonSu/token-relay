@@ -9,6 +9,27 @@ from app.models import RequestLog
 router = APIRouter(prefix="/api")
 
 
+def _extract_usage(response_body: dict | None) -> dict | None:
+    """Extract token usage from an Anthropic response body."""
+    if not response_body or not isinstance(response_body, dict):
+        return None
+    usage = response_body.get("usage")
+    if not usage:
+        return None
+    input_tokens = usage.get("input_tokens", 0) or 0
+    cache_read = usage.get("cache_read_input_tokens", 0) or 0
+    cache_create = usage.get("cache_creation_input_tokens", 0) or 0
+    output_tokens = usage.get("output_tokens", 0) or 0
+    cache_hit = cache_read + cache_create
+    total_tokens = input_tokens + output_tokens
+    return {
+        "input_tokens": input_tokens,
+        "cache_hit_tokens": cache_hit,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
 @router.get("/logs")
 async def get_logs(
     page: int = Query(1, ge=1),
@@ -47,6 +68,7 @@ async def get_logs(
                 "error_message": log.error_message,
                 "created_at": log.created_at.isoformat() if log.created_at else None,
                 "client_ip": log.client_ip,
+                "usage": _extract_usage(log.response_body),
             }
             for log in logs
         ],
