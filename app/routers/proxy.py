@@ -12,9 +12,20 @@ router = APIRouter(prefix="/anthropic")
 
 
 def verify_api_key(request: Request):
+    # Claude Code sends token in Authorization: Bearer <token> or x-api-key header
     api_key = request.headers.get("x-api-key", "")
+    if not api_key:
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            api_key = auth[7:]
     if api_key != RELAY_API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+@router.api_route("", methods=["GET", "HEAD"])
+async def health_check():
+    """Health check endpoint for Claude Code to verify the relay is alive."""
+    return JSONResponse({"status": "ok"})
 
 
 @router.post("/v1/messages")

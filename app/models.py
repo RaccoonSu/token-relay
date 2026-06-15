@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, Boolean, DateTime, ForeignKey, JSON, Text
 )
@@ -15,8 +15,8 @@ class Provider(Base):
     base_url = Column(String(500), nullable=False)
     api_key = Column(Text, nullable=False, default="")
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     mappings = relationship("ModelMapping", back_populates="provider")
     logs = relationship("RequestLog", back_populates="provider")
@@ -29,8 +29,8 @@ class ModelMapping(Base):
     model_id = Column(String(200), unique=True, nullable=False)
     provider_id = Column(Integer, ForeignKey("providers.id"), nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     provider = relationship("Provider", back_populates="mappings")
 
@@ -48,7 +48,7 @@ class RequestLog(Base):
     is_stream = Column(Boolean, default=False)
     duration_ms = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     client_ip = Column(String(50), nullable=True)
 
     provider = relationship("Provider", back_populates="logs")

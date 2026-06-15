@@ -54,13 +54,17 @@ def aggregate_sse_event(message: dict, content_blocks: list, event_type: str, da
             block = content_blocks[index]
             delta_type = delta.get("type", "")
             if delta_type == "text_delta":
-                block["text"] = block.get("text", "") + delta.get("text", "")
+                current = block.get("text", "")
+                block["text"] = (current if isinstance(current, str) else "") + (delta.get("text", "") or "")
             elif delta_type == "input_json_delta":
-                block["input"] = block.get("input", "") + delta.get("partial_json", "")
+                current = block.get("input", "")
+                block["input"] = (current if isinstance(current, str) else "") + (delta.get("partial_json", "") or "")
             elif delta_type == "thinking_delta":
-                block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
+                current = block.get("thinking", "")
+                block["thinking"] = (current if isinstance(current, str) else "") + (delta.get("thinking", "") or "")
             elif delta_type == "signature_delta":
-                block["signature"] = block.get("signature", "") + delta.get("signature", "")
+                current = block.get("signature", "")
+                block["signature"] = (current if isinstance(current, str) else "") + (delta.get("signature", "") or "")
 
     elif event_type == "content_block_stop":
         index = data.get("index", 0)

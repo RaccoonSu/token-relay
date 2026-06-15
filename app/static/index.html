@@ -26,8 +26,9 @@ h1 { font-size: 24px; margin-bottom: 20px; color: #1a1a2e; }
 .btn-ghost:hover { background: #f1f5f9; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
-th { background: #f8fafc; font-weight: 600; color: #475569; }
+th { background: #f8fafc; font-weight: 600; color: #475569; position: sticky; top: 0; z-index: 2; }
 tr:hover { background: #f8fafc; }
+.table-scroll { max-height: 70vh; overflow-y: auto; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
 .badge-green { background: #dcfce7; color: #166534; }
 .badge-red { background: #fee2e2; color: #991b1b; }
@@ -47,10 +48,20 @@ tr:hover { background: #f8fafc; }
 .checkbox-wrap input[type="checkbox"] { width: auto; }
 
 /* Log detail */
-.log-detail { background: #f8fafc; border-radius: 8px; padding: 16px; margin-top: 8px; }
-.log-detail pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.5; margin-top: 8px; white-space: pre-wrap; word-break: break-all; }
+.log-detail { background: #f8fafc; border-radius: 8px; padding: 0; margin-top: 8px; position: relative; }
+.log-detail-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: #1e293b; color: #e2e8f0; border-radius: 8px 8px 0 0; position: sticky; top: 0; z-index: 3; }
+.log-detail-bar .info { display: flex; align-items: center; gap: 16px; font-size: 13px; }
+.log-detail-bar .info code { color: #93c5fd; font-size: 13px; }
+.log-detail-body { padding: 16px; }
+.log-detail pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow: auto; font-size: 13px; line-height: 1.5; margin-top: 8px; white-space: pre-wrap; word-break: break-all; max-height: 400px; }
 .log-detail h4 { font-size: 14px; margin-bottom: 4px; color: #475569; }
 .log-section { margin-bottom: 12px; }
+.section-header { display: flex; align-items: center; justify-content: space-between; }
+.section-header h4 { margin-bottom: 0; }
+.btn-copy { padding: 2px 8px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; color: #6b7280; cursor: pointer; }
+.btn-copy:hover { background: #f3f4f6; color: #374151; }
+.btn-copy.copied { background: #dcfce7; color: #166534; border-color: #86efac; }
+.log-detail-footer { display: flex; justify-content: center; padding-top: 12px; margin-top: 12px; border-top: 1px solid #e2e8f0; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 16px; }
 .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
 .empty { text-align: center; padding: 40px; color: #94a3b8; }
@@ -133,9 +144,13 @@ tr:hover { background: #f8fafc; }
   <div v-if="tab === 'logs'">
     <div class="toolbar">
       <span>共 {{ logsTotal }} 条记录</span>
-      <button class="btn btn-danger" @click="clearLogs()">清空日志</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary" @click="loadLogs()">刷新</button>
+        <button class="btn btn-danger" @click="clearLogs()">清空日志</button>
+      </div>
     </div>
     <div class="card">
+      <div class="table-scroll">
       <table v-if="logs.length">
         <thead><tr><th>ID</th><th>时间</th><th>模型</th><th>供应商</th><th>状态</th><th>耗时</th><th>类型</th><th></th></tr></thead>
         <tbody>
@@ -153,17 +168,38 @@ tr:hover { background: #f8fafc; }
             <tr v-if="expandedLog === log.id" class="expand-row">
               <td colspan="8">
                 <div class="log-detail" v-if="logDetail">
+                  <div class="log-detail-bar">
+                    <div class="info">
+                      <span>ID: <strong>{{ log.id }}</strong></span>
+                      <span>模型: <code>{{ log.model_id }}</code></span>
+                      <span :style="{color: log.status_code < 400 ? '#4ade80' : '#f87171'}">{{ log.status_code }}</span>
+                      <span>{{ log.duration_ms }}ms</span>
+                      <span>{{ log.is_stream ? '流式' : '非流式' }}</span>
+                    </div>
+                    <button class="btn btn-sm" style="background:#e2e8f0;color:#1e293b;" @click="expandedLog = null">收起</button>
+                  </div>
+                  <div class="log-detail-body">
                   <div class="log-section">
-                    <h4>请求体 (Request)</h4>
+                    <div class="section-header">
+                      <h4>请求体 (Request)</h4>
+                      <button class="btn-copy" :class="{copied: copyState.request}" @click="copyText(JSON.stringify(logDetail.request_body, null, 2), 'request')">复制</button>
+                    </div>
                     <pre>{{ JSON.stringify(logDetail.request_body, null, 2) }}</pre>
                   </div>
                   <div class="log-section">
-                    <h4>响应体 (Response)</h4>
+                    <div class="section-header">
+                      <h4>响应体 (Response)</h4>
+                      <button class="btn-copy" :class="{copied: copyState.response}" @click="copyText(JSON.stringify(logDetail.response_body, null, 2), 'response')">复制</button>
+                    </div>
                     <pre>{{ JSON.stringify(logDetail.response_body, null, 2) }}</pre>
                   </div>
                   <div v-if="logDetail.error_message" class="log-section">
                     <h4>错误信息</h4>
                     <pre>{{ logDetail.error_message }}</pre>
+                  </div>
+                  <div class="log-detail-footer">
+                    <button class="btn btn-ghost" @click="expandedLog = null">收起</button>
+                  </div>
                   </div>
                 </div>
                 <div v-else class="log-detail">加载中...</div>
@@ -173,6 +209,7 @@ tr:hover { background: #f8fafc; }
         </tbody>
       </table>
       <div v-else class="empty">暂无请求记录</div>
+      </div>
       <div class="pagination" v-if="logsTotal > logsSize">
         <button class="btn btn-ghost" :disabled="logsPage <= 1" @click="logsPage--; loadLogs()">上一页</button>
         <span>第 {{ logsPage }} / {{ Math.ceil(logsTotal / logsSize) }} 页</span>
@@ -365,6 +402,26 @@ createApp({
       return d.toLocaleString('zh-CN')
     }
 
+    const copyState = Vue.reactive({})
+
+    async function copyText(text, key) {
+      try {
+        await navigator.clipboard.writeText(text)
+        copyState[key] = true
+        setTimeout(() => { copyState[key] = false }, 1500)
+      } catch {
+        // Fallback for older browsers
+        const ta = document.createElement('textarea')
+        ta.value = text
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+        copyState[key] = true
+        setTimeout(() => { copyState[key] = false }, 1500)
+      }
+    }
+
     onMounted(() => {
       loadProviders()
     })
@@ -377,6 +434,7 @@ createApp({
       loadProviders, openProviderModal, saveProvider, removeProvider,
       loadMappings, openMappingModal, saveMapping, removeMapping,
       loadLogs, toggleLogDetail, clearLogs, formatTime,
+      copyText, copyState,
     }
   }
 }).mount('#app')

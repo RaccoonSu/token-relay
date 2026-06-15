@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:5020/api/providers)",
+      "Bash(curl -s -X POST http://localhost:5020/api/model-mappings -H 'Content-Type: application/json' -d '{\"model_id\": \"qwen-max\", \"provider_id\": 1, \"is_active\": true}')",
+      "Bash(curl -s -X POST http://localhost:5020/anthropic/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: relay-secret-key-2026' -d '{ *)",
+      "Bash(curl -s http://localhost:5020/api/logs)",
+      "Bash(curl -s http://localhost:5020/api/logs/1)",
+      "Bash(git commit -m ' *)",
+      "Bash(curl -s -w '\\\\n---HTTP_STATUS:%{http_code}---TIME:%{time_total}s' -X POST http://localhost:5020/anthropic/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: 9oqkZh04ZMxrJA9Oqq18' -H 'anthropic-version: 2023-06-01' -d '{ *)"
+    ]
+  }
+}

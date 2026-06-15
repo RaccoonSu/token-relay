@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 
 from app.config import RELAY_PORT
 from app.database import init_db
+from app.middleware import LocalhostOnlyMiddleware
 from app.routers import proxy, providers, logs
 
 
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Token Relay", lifespan=lifespan)
+app.add_middleware(LocalhostOnlyMiddleware)
 
 # Register routers
 app.include_router(proxy.router)
