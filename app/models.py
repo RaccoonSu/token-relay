@@ -50,6 +50,11 @@ class RequestLog(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     client_ip = Column(String(50), nullable=True)
+    # 用量统计专用列，写日志时填充；历史数据为 NULL，聚合按 0 处理
+    input_tokens = Column(Integer, nullable=True)
+    cache_hit_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
 
     provider = relationship("Provider", back_populates="logs")
 
