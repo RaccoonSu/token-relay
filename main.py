@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from app.config import RELAY_PORT
 from app.database import init_db
 from app.middleware import LocalhostOnlyMiddleware
-from app.routers import proxy, providers, logs
+from app.routers import proxy, providers, logs, stats
 
 
 @asynccontextmanager
@@ -25,6 +25,7 @@ app.add_middleware(LocalhostOnlyMiddleware)
 app.include_router(proxy.router)
 app.include_router(providers.router)
 app.include_router(logs.router)
+app.include_router(stats.router)
 
 # Serve static files
 static_dir = os.path.join(os.path.dirname(__file__), "app", "static")
