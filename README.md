@@ -70,11 +70,6 @@ token-relay/
 ### 1. 安装依赖
 
 ```bash
-# 建议使用虚拟环境
-python -m venv .venv
-source .venv/bin/activate        # Linux/macOS
-# .venv\Scripts\activate         # Windows
-
 pip install -r requirements.txt
 ```
 
