@@ -21,7 +21,8 @@ def _extract_usage(response_body: dict | None) -> dict | None:
     cache_create = usage.get("cache_creation_input_tokens", 0) or 0
     output_tokens = usage.get("output_tokens", 0) or 0
     cache_hit = cache_read + cache_create
-    total_tokens = input_tokens + output_tokens
+    # input_tokens 已不含缓存部分，真正的总输入需把缓存读+缓存写加上
+    total_tokens = input_tokens + cache_read + cache_create + output_tokens
     return {
         "input_tokens": input_tokens,
         "cache_hit_tokens": cache_hit,
