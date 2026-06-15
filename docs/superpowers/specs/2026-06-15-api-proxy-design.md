@@ -287,3 +287,49 @@ python-dotenv>=1.0.0
 aiosqlite>=0.19.0
 sse-starlette>=1.6.0
 ```
+
+## 验证方式
+
+### 测试 Token
+
+使用阿里百炼的 Token 进行验证：
+
+```
+sk-sp-D.IPXMD.BIM0.MEUCIQDabakdrvPKNXOZI2qqtuA1vmLjBoUuBQ1U2elIQt117wIgEl7PRGYRJ7r8Q8U3jbIvTSBydWXaeN+6bHnJDxN++dg=
+```
+
+### 验证步骤
+
+1. 启动服务：`python main.py`
+2. 在前端页面配置阿里百炼供应商，填入上述 Token
+3. 添加模型映射，如 `qwen-max` → 阿里百炼
+4. 发送非流式测试请求：
+
+```bash
+curl -X POST http://localhost:5020/anthropic/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-relay-key" \
+  -d '{
+    "model": "qwen-max",
+    "max_tokens": 100,
+    "messages": [{"role": "user", "content": "你好"}]
+  }'
+```
+
+5. 发送流式测试请求：
+
+```bash
+curl -X POST http://localhost:5020/anthropic/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-relay-key" \
+  -d '{
+    "model": "qwen-max",
+    "max_tokens": 100,
+    "stream": true,
+    "messages": [{"role": "user", "content": "你好"}]
+  }'
+```
+
+6. 在前端日志页面查看请求记录，确认：
+   - 非流式请求的完整入参出参已存储
+   - 流式请求的 SSE 已聚合为标准 JSON 格式存储
