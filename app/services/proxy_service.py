@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.database import async_session
 from app.models import Provider, ModelMapping, RequestLog
 
 
@@ -33,11 +34,14 @@ def aggregate_sse_event(message: dict, content_blocks: list, event_type: str, da
     elif event_type == "content_block_start":
         index = data.get("index", len(content_blocks))
         block = data.get("content_block", {})
-        # Initialize text or input fields
+        # Initialize fields based on block type
         if block.get("type") == "text":
             block.setdefault("text", "")
         elif block.get("type") == "tool_use":
             block.setdefault("input", "")
+        elif block.get("type") == "thinking":
+            block.setdefault("thinking", "")
+            block.setdefault("signature", "")
         # Insert at the right index
         while len(content_blocks) <= index:
             content_blocks.append({})
@@ -53,6 +57,10 @@ def aggregate_sse_event(message: dict, content_blocks: list, event_type: str, da
                 block["text"] = block.get("text", "") + delta.get("text", "")
             elif delta_type == "input_json_delta":
                 block["input"] = block.get("input", "") + delta.get("partial_json", "")
+            elif delta_type == "thinking_delta":
+                block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
+            elif delta_type == "signature_delta":
+                block["signature"] = block.get("signature", "") + delta.get("signature", "")
 
     elif event_type == "content_block_stop":
         index = data.get("index", 0)
@@ -168,7 +176,6 @@ async def proxy_non_stream(
 
 
 async def proxy_stream(
-    db: AsyncSession,
     provider: Provider,
     request_body: dict,
     client_ip: str,
@@ -211,20 +218,22 @@ async def proxy_stream(
                     error_message = json.dumps(error_body, ensure_ascii=False)
 
                     duration_ms = int((time.time() - start_time) * 1000)
-                    log_entry = RequestLog(
-                        request_id=request_id,
-                        model_id=request_body.get("model", ""),
-                        provider_id=provider.id,
-                        request_body=request_body,
-                        response_body=error_body,
-                        status_code=status_code,
-                        is_stream=True,
-                        duration_ms=duration_ms,
-                        error_message=error_message,
-                        client_ip=client_ip,
-                    )
-                    db.add(log_entry)
-                    await db.commit()
+                    # Save log using independent session
+                    async with async_session() as db:
+                        log_entry = RequestLog(
+                            request_id=request_id,
+                            model_id=request_body.get("model", ""),
+                            provider_id=provider.id,
+                            request_body=request_body,
+                            response_body=error_body,
+                            status_code=status_code,
+                            is_stream=True,
+                            duration_ms=duration_ms,
+                            error_message=error_message,
+                            client_ip=client_ip,
+                        )
+                        db.add(log_entry)
+                        await db.commit()
 
                     # Yield the error as SSE
                     yield f"data: {json.dumps(error_body, ensure_ascii=False)}\n\n"
@@ -258,21 +267,22 @@ async def proxy_stream(
         status_code = 500
         error_message = str(e)
 
-    # Build aggregated response and save log
+    # Build aggregated response and save log using independent session
     duration_ms = int((time.time() - start_time) * 1000)
     aggregated_response = build_aggregated_response(message, content_blocks)
 
-    log_entry = RequestLog(
-        request_id=request_id,
-        model_id=request_body.get("model", ""),
-        provider_id=provider.id,
-        request_body=request_body,
-        response_body=aggregated_response,
-        status_code=status_code,
-        is_stream=True,
-        duration_ms=duration_ms,
-        error_message=error_message,
-        client_ip=client_ip,
-    )
-    db.add(log_entry)
-    await db.commit()
+    async with async_session() as db:
+        log_entry = RequestLog(
+            request_id=request_id,
+            model_id=request_body.get("model", ""),
+            provider_id=provider.id,
+            request_body=request_body,
+            response_body=aggregated_response,
+            status_code=status_code,
+            is_stream=True,
+            duration_ms=duration_ms,
+            error_message=error_message,
+            client_ip=client_ip,
+        )
+        db.add(log_entry)
+        await db.commit()

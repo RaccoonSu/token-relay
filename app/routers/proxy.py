@@ -45,7 +45,7 @@ async def proxy_messages(
 
     if is_stream:
         return StreamingResponse(
-            proxy_stream(db, provider, body, client_ip),
+            proxy_stream(provider, body, client_ip),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
