@@ -36,15 +36,22 @@
 - **后端**: FastAPI + SQLAlchemy（async）
 - **前端**: Vue 3（CDN 引入）+ Chart.js 4（CDN 引入，用于图表渲染）
 
-### 数据来源
+### 数据模型变更：RequestLog 增加独立 token 列
 
-聚合数据全部来自现有的 `RequestLog` 表，无需新增数据模型。Token 用量从 `response_body` 中的 `usage` 字段提取，复用 [logs.py](../../../app/routers/logs.py) 中现有的提取逻辑。
+当前 token 用量埋在 `RequestLog.response_body` JSON 列里，每次聚合都要解析全部行的 JSON，无法建索引，数据量增长后查询会越来越慢。
 
-token 提取字段映射：
-- `input_tokens` ← `usage.input_tokens`
-- `cache_hit_tokens` ← `usage.cache_read_input_tokens` + `usage.cache_creation_input_tokens`
-- `output_tokens` ← `usage.output_tokens`
-- `total_tokens` ← `input_tokens` + `cache_hit_tokens` + `output_tokens`
+为此给 `RequestLog` 增加 4 个独立的 Integer 列：
+
+| 列名 | 来源 | 说明 |
+|------|------|------|
+| `input_tokens` | `usage.input_tokens` | 输入 token |
+| `cache_hit_tokens` | `usage.cache_read_input_tokens` + `usage.cache_creation_input_tokens` | 缓存命中 |
+| `output_tokens` | `usage.output_tokens` | 输出 token |
+| `total_tokens` | 上述三项之和 | 总用量 |
+
+写入日志时由 [proxy_service.py](../../../app/services/proxy_service.py) 计算并填充。历史数据不重要、不做回填，旧日志的 token 列保持 NULL，聚合时按 0 处理。聚合查询改为对这 4 列直接 `SUM()` + `GROUP BY`，查询飞快。
+
+由于 `init_db()` 的 `create_all` 不会给已存在的表加列，需在启动时对已有数据库执行一次 `ALTER TABLE ADD COLUMN`（幂等，检测列不存在才加）。
 
 ## 后端设计
 
@@ -185,6 +192,9 @@ def extract_usage(response_body: dict | None) -> dict:
 - `app/static/stats.html` — 用量统计前端页面
 
 **修改：**
+- `app/models.py` — `RequestLog` 增加 `input_tokens`/`cache_hit_tokens`/`output_tokens`/`total_tokens` 4 个 Integer 列
+- `app/database.py` — `init_db()` 加幂等的 `ALTER TABLE ADD COLUMN` 迁移逻辑
+- `app/services/proxy_service.py` — 写日志时用 `extract_usage()` 填充新列
 - `main.py` — 注册 `/stats` 路由、挂载 stats router
 - `app/routers/logs.py` — 将 `_extract_usage()` 替换为引用 `app/utils.py` 的共享函数
 - `app/static/index.html` — 顶部加"用量统计"导航链接
