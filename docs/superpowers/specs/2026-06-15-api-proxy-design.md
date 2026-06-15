@@ -1,106 +1,106 @@
-# Token Relay - API Proxy Gateway Design
+# Token Relay - API 中转站设计文档
 
-## Overview
+## 概述
 
-A lightweight API proxy gateway that unifies three Anthropic-compatible API providers behind a single endpoint. Routes requests by model ID, provides a web-based configuration UI, and logs all requests with full SSE stream aggregation.
+一个轻量级 API 代理中转站，将三个 Anthropic 兼容的 API 供应商统一在一个入口后面。通过模型 ID 路由请求，提供 Web 配置界面，记录所有请求（含 SSE 流式聚合）。
 
-## Goals
+## 目标
 
-- Unified entry point for multiple Anthropic-compatible providers
-- Switch models/providers without modifying Claude Code configuration
-- Full request logging with streaming response aggregation
-- Simple web UI for configuration and log viewing
+- 多个 Anthropic 兼容供应商的统一入口
+- 切换模型/供应商时无需修改 Claude Code 配置
+- 完整的请求日志记录，支持流式响应聚合
+- 简单的 Web UI 用于配置和查看日志
 
-## Providers
+## 供应商
 
-| Name     | Base URL                                                         |
+| 名称     | Base URL                                                         |
 |----------|------------------------------------------------------------------|
 | 阿里百炼 | `https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic` |
 | 智谱     | `https://open.bigmodel.cn/api/anthropic`                         |
 | DeepSeek | `https://api.deepseek.com/anthropic`                             |
 
-## Architecture
+## 架构
 
-### Tech Stack
+### 技术栈
 
-- **Backend**: Python 3.11+ / FastAPI
-- **Frontend**: Single HTML file with Vue 3 (CDN)
-- **Database**: SQLite via SQLAlchemy
-- **HTTP Client**: httpx (async, SSE support)
+- **后端**: Python 3.11+ / FastAPI
+- **前端**: 单 HTML 文件 + Vue 3（CDN 引入）
+- **数据库**: SQLite + SQLAlchemy
+- **HTTP 客户端**: httpx（异步，支持 SSE）
 
-### Project Structure
+### 项目结构
 
 ```
 token-relay/
-├── main.py                    # Entry point, starts uvicorn
-├── requirements.txt           # Dependencies
-├── .env.example               # Environment variable template
+├── main.py                    # 入口，启动 uvicorn
+├── requirements.txt           # 依赖列表
+├── .env.example               # 环境变量模板
 ├── app/
 │   ├── __init__.py
-│   ├── config.py              # Global config (port, token, etc.)
-│   ├── database.py            # SQLite + SQLAlchemy setup
-│   ├── models.py              # SQLAlchemy data models
+│   ├── config.py              # 全局配置（端口、Token 等）
+│   ├── database.py            # SQLite + SQLAlchemy 设置
+│   ├── models.py              # SQLAlchemy 数据模型
 │   ├── routers/
 │   │   ├── __init__.py
-│   │   ├── proxy.py           # Anthropic API proxy route
-│   │   ├── providers.py       # Provider CRUD
-│   │   └── logs.py            # Log querying
+│   │   ├── proxy.py           # Anthropic API 代理路由
+│   │   ├── providers.py       # 供应商 CRUD
+│   │   └── logs.py            # 日志查询
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── proxy_service.py   # Core proxy logic (routing + SSE aggregation)
-│   │   └── provider_service.py# Provider management
+│   │   ├── proxy_service.py   # 代理核心逻辑（路由分发 + SSE 聚合）
+│   │   └── provider_service.py# 供应商管理
 │   └── static/
-│       └── index.html         # Frontend SPA (Vue 3)
-└── data/                      # SQLite database directory (gitignored)
+│       └── index.html         # 前端单页面（Vue 3）
+└── data/                      # SQLite 数据库文件目录（gitignored）
 ```
 
-### Data Models
+### 数据模型
 
-#### Provider
+#### Provider（供应商）
 
-| Field      | Type      | Description                            |
-|------------|-----------|----------------------------------------|
-| id         | int (PK)  | Auto-increment primary key             |
-| name       | str       | Display name, e.g. "阿里百炼"           |
-| base_url   | str       | Provider API base URL                  |
-| api_key    | str       | Provider API key                       |
-| is_active  | bool      | Whether this provider is enabled       |
-| created_at | datetime  |                                        |
-| updated_at | datetime  |                                        |
+| 字段       | 类型       | 说明                           |
+|------------|-----------|-------------------------------|
+| id         | int (PK)  | 自增主键                       |
+| name       | str       | 显示名称，如 "阿里百炼"          |
+| base_url   | str       | 供应商 API 基础 URL             |
+| api_key    | str       | 供应商 API Key                  |
+| is_active  | bool      | 是否启用                       |
+| created_at | datetime  | 创建时间                       |
+| updated_at | datetime  | 更新时间                       |
 
-#### ModelMapping
+#### ModelMapping（模型映射）
 
-| Field      | Type      | Description                            |
-|------------|-----------|----------------------------------------|
-| id         | int (PK)  | Auto-increment primary key             |
-| model_id   | str       | Model identifier, e.g. "claude-sonnet-4-20250514" |
-| provider_id| int (FK)  | Reference to Provider                  |
-| is_active  | bool      | Whether this mapping is enabled        |
-| created_at | datetime  |                                        |
-| updated_at | datetime  |                                        |
+| 字段        | 类型       | 说明                                         |
+|-------------|-----------|---------------------------------------------|
+| id          | int (PK)  | 自增主键                                      |
+| model_id    | str       | 模型标识符，如 "claude-sonnet-4-20250514"       |
+| provider_id | int (FK)  | 关联的供应商                                   |
+| is_active   | bool      | 是否启用                                      |
+| created_at  | datetime  | 创建时间                                      |
+| updated_at  | datetime  | 更新时间                                      |
 
-**Constraint**: `model_id` must be unique (one model maps to one provider).
+**约束**: `model_id` 唯一，一个模型只能映射到一个供应商。
 
-#### RequestLog
+#### RequestLog（请求日志）
 
-| Field          | Type      | Description                            |
-|----------------|-----------|----------------------------------------|
-| id             | int (PK)  | Auto-increment primary key             |
-| request_id     | str       | UUID for tracing                       |
-| model_id       | str       | Requested model name                   |
-| provider_id    | int (FK)  | Actual provider routed to              |
-| request_body   | JSON      | Full request body                      |
-| response_body  | JSON      | Full response (aggregated for streams)  |
-| status_code    | int       | HTTP status code                       |
-| is_stream      | bool      | Whether this was a streaming request   |
-| duration_ms    | int       | Request duration in milliseconds       |
-| error_message  | str/null  | Error details if request failed        |
-| created_at     | datetime  |                                        |
-| client_ip      | str       | Client IP address                      |
+| 字段           | 类型       | 说明                                       |
+|----------------|-----------|-------------------------------------------|
+| id             | int (PK)  | 自增主键                                    |
+| request_id     | str       | UUID，用于追踪                              |
+| model_id       | str       | 请求的模型名称                              |
+| provider_id    | int (FK)  | 实际路由到的供应商                           |
+| request_body   | JSON      | 完整请求体                                  |
+| response_body  | JSON      | 完整响应（流式调用为聚合后的标准格式）         |
+| status_code    | int       | HTTP 状态码                                 |
+| is_stream      | bool      | 是否为流式调用                               |
+| duration_ms    | int       | 请求耗时（毫秒）                             |
+| error_message  | str/null  | 错误信息（如有）                              |
+| created_at     | datetime  | 创建时间                                    |
+| client_ip      | str       | 客户端 IP 地址                               |
 
-## Proxy Logic
+## 代理逻辑
 
-### Request Flow
+### 请求流程
 
 ```
 Claude Code
@@ -108,45 +108,44 @@ Claude Code
     │  Header: x-api-key = <RELAY_API_KEY>
     │
     ▼
-FastAPI Proxy
+FastAPI 代理
     │
-    ├── 1. Validate access token (x-api-key header)
-    ├── 2. Parse request body, extract `model` field
-    ├── 3. Query ModelMapping table → find Provider
-    ├── 4. Replace base_url with Provider's base_url, use Provider's API key
-    ├── 5. Forward request to target provider
+    ├── 1. 验证访问 Token（x-api-key 请求头）
+    ├── 2. 解析请求体，提取 model 字段
+    ├── 3. 查询 ModelMapping 表 → 找到对应的供应商
+    ├── 4. 替换 base_url 和 API Key 为供应商的配置
+    ├── 5. 转发请求到目标供应商
     │
-    ├── [Non-streaming] → Return response directly, save full req/res to log
+    ├── [非流式] → 直接返回响应，同时存储完整 req/res 到日志
     │
-    └── [Streaming SSE] → Stream chunks back to client
-                          Aggregate SSE events in background
-                          After stream ends, assemble into standard Anthropic Message JSON
-                          Save aggregated result to log
+    └── [流式 SSE] → 逐块转发给客户端
+                      后台聚合所有 SSE 事件
+                      流结束后组装成标准 Anthropic Message JSON 格式存储
 ```
 
-### SSE Stream Aggregation
+### SSE 流式聚合
 
-Anthropic SSE event types:
+Anthropic SSE 事件类型：
 
-1. `message_start` — Message skeleton (id, model, role, usage initial)
-2. `content_block_start` — Initialize content block (text or tool_use)
-3. `content_block_delta` — Incremental content:
-   - `text_delta`: append to text content
-   - `input_json_delta`: append to tool_use input JSON
-4. `content_block_stop` — Content block complete
-5. `message_delta` — Message-level updates (stop_reason, final usage)
-6. `message_stop` — Message complete
+1. `message_start` — 消息骨架（id, model, role, 初始 usage）
+2. `content_block_start` — 内容块开始（text 或 tool_use）
+3. `content_block_delta` — 增量内容：
+   - `text_delta`: 追加文本内容
+   - `input_json_delta`: 追加 tool_use 的 input JSON
+4. `content_block_stop` — 内容块结束
+5. `message_delta` — 消息级更新（stop_reason, 最终 usage）
+6. `message_stop` — 消息结束
 
-**Aggregation algorithm**:
+**聚合算法**：
 
 ```python
 def aggregate_sse_events(events):
-    message = {}  # from message_start
+    message = {}  # 来自 message_start
     content_blocks = []
 
     for event in events:
         if event.type == "message_start":
-            message = event.message  # skeleton
+            message = event.message  # 消息骨架
 
         elif event.type == "content_block_start":
             content_blocks.append(event.content_block)
@@ -159,7 +158,7 @@ def aggregate_sse_events(events):
                 block["input"] += event.delta.partial_json
 
         elif event.type == "content_block_stop":
-            # Parse accumulated input JSON for tool_use blocks
+            # 解析 tool_use 的 input JSON
             block = content_blocks[event.index]
             if block["type"] == "tool_use" and isinstance(block.get("input"), str):
                 block["input"] = json.loads(block["input"])
@@ -172,89 +171,89 @@ def aggregate_sse_events(events):
             message["content"] = content_blocks
             message["type"] = "message"
 
-    return message  # Standard Anthropic Message JSON
+    return message  # 标准 Anthropic Message JSON
 ```
 
-### Error Handling
+### 错误处理
 
-| Scenario              | Response to Client              | Log Behavior        |
-|-----------------------|---------------------------------|---------------------|
-| Invalid token         | 401 Unauthorized                | Log with error      |
-| Model not mapped      | 400 Bad Request + hint message  | Log with error      |
-| Provider returns error| Pass through provider's response| Log error response  |
-| Network timeout       | 504 Gateway Timeout             | Log with error      |
-| Provider unreachable  | 502 Bad Gateway                 | Log with error      |
+| 场景             | 客户端响应                     | 日志行为           |
+|-----------------|-------------------------------|-------------------|
+| Token 无效       | 401 Unauthorized              | 记录错误           |
+| 模型未映射       | 400 Bad Request + 提示信息      | 记录错误           |
+| 供应商返回错误    | 透传供应商的响应                | 记录错误响应       |
+| 网络超时         | 504 Gateway Timeout            | 记录错误           |
+| 供应商不可达      | 502 Bad Gateway               | 记录错误           |
 
-## API Design
+## API 设计
 
-### Proxy API
+### 代理 API
 
 ```
 POST /anthropic/v1/messages
 Header: x-api-key = <RELAY_API_KEY>
-Body: Standard Anthropic Messages API request body
-Response: Standard Anthropic Messages API response (or SSE stream)
+Body: 标准 Anthropic Messages API 请求体
+Response: 标准 Anthropic Messages API 响应（或 SSE 流）
 ```
 
-### Management APIs
+### 管理 API
 
-#### Providers
-
-```
-GET    /api/providers           # List all providers
-POST   /api/providers           # Create provider
-PUT    /api/providers/{id}      # Update provider
-DELETE /api/providers/{id}      # Delete provider
-```
-
-#### Model Mappings
+#### 供应商管理
 
 ```
-GET    /api/model-mappings          # List all mappings (with provider info joined)
-POST   /api/model-mappings          # Create mapping
-PUT    /api/model-mappings/{id}     # Update mapping
-DELETE /api/model-mappings/{id}     # Delete mapping
+GET    /api/providers           # 获取供应商列表
+POST   /api/providers           # 创建供应商
+PUT    /api/providers/{id}      # 更新供应商
+DELETE /api/providers/{id}      # 删除供应商
 ```
 
-#### Request Logs
+#### 模型映射
 
 ```
-GET    /api/logs                  # List logs (paginated, ?page=1&size=20)
-GET    /api/logs/{id}             # Get single log detail
-DELETE /api/logs                  # Clear all logs
+GET    /api/model-mappings          # 获取映射列表（含供应商信息）
+POST   /api/model-mappings          # 创建映射
+PUT    /api/model-mappings/{id}     # 更新映射
+DELETE /api/model-mappings/{id}     # 删除映射
 ```
 
-### Authentication
+#### 请求日志
 
-- **Proxy API** (`/anthropic/*`): Requires `x-api-key` header with value matching `RELAY_API_KEY` from `.env`
-- **Management API** (`/api/*`): No authentication (local-only access)
-- **Static files** (`/`): No authentication (serves the frontend)
+```
+GET    /api/logs                  # 获取日志列表（分页，?page=1&size=20）
+GET    /api/logs/{id}             # 获取单条日志详情
+DELETE /api/logs                  # 清空日志
+```
 
-## Frontend
+### 认证
 
-Single-page Vue 3 application served at `/` by FastAPI.
+- **代理 API**（`/anthropic/*`）：需要 `x-api-key` 请求头，值匹配 `.env` 中的 `RELAY_API_KEY`
+- **管理 API**（`/api/*`）：无需认证（仅本地访问）
+- **静态文件**（`/`）：无需认证（提供前端页面）
 
-### Tabs
+## 前端
 
-1. **供应商管理 (Providers)**
-   - Table listing all providers with name, base_url, active status
-   - Add/Edit/Delete provider (modal form)
-   - API Key field with show/hide toggle
+基于 Vue 3 的单页应用，由 FastAPI 在 `/` 路径提供。
 
-2. **模型映射 (Model Mappings)**
-   - Table listing model_id → provider mappings
-   - Add/Edit/Delete mapping
-   - Provider selection via dropdown (populated from providers list)
-   - Toggle active/inactive
+### 标签页
 
-3. **请求日志 (Request Logs)**
-   - Paginated table: time, model, provider, status, duration, stream/non-stream
-   - Click row to expand and view full request body and response body
-   - JSON viewer with syntax highlighting (use a lightweight library or simple `<pre>`)
+1. **供应商管理**
+   - 表格展示所有供应商：名称、base_url、启用状态
+   - 新增/编辑/删除供应商（弹窗表单）
+   - API Key 输入框支持显示/隐藏切换
 
-## Configuration
+2. **模型映射**
+   - 表格展示 model_id → 供应商的映射关系
+   - 新增/编辑/删除映射
+   - 供应商选择下拉框（从供应商列表加载）
+   - 启用/禁用切换
 
-### Environment Variables (.env)
+3. **请求日志**
+   - 分页表格：时间、模型、供应商、状态码、耗时、流式/非流式
+   - 点击行展开查看完整请求体和响应体
+   - JSON 语法高亮显示
+
+## 配置
+
+### 环境变量（.env）
 
 ```
 RELAY_PORT=5020
@@ -262,22 +261,22 @@ RELAY_API_KEY=your-secret-key-here
 DATABASE_URL=sqlite:///./data/token_relay.db
 ```
 
-### Default Port
+### 默认端口
 
 5020
 
-## Claude Code Configuration
+## Claude Code 配置
 
-To use the proxy with Claude Code, set the base URL to:
+在 Claude Code 中设置 base URL 为：
 
 ```
 ANTHROPIC_BASE_URL=http://localhost:5020/anthropic
 ANTHROPIC_API_KEY=your-secret-key-here
 ```
 
-Claude Code will automatically append `/v1/messages` to the base URL.
+Claude Code 会自动在 base URL 后拼接 `/v1/messages`。
 
-## Dependencies
+## 依赖
 
 ```
 fastapi>=0.100.0
