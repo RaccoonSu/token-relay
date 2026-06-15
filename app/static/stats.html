@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Token Relay - 用量统计</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/chart.js@4"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; color: #333; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+h1 { font-size: 24px; margin-bottom: 20px; color: #1a1a2e; display: flex; justify-content: space-between; align-items: center; }
+.nav-link { font-size: 14px; color: #3b82f6; text-decoration: none; }
+.card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 16px; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+.range-btns { display: flex; gap: 0; }
+.range-btn { padding: 6px 14px; border: 1px solid #e2e8f0; background: #fff; cursor: pointer; font-size: 13px; color: #64748b; }
+.range-btn:first-child { border-radius: 6px 0 0 6px; }
+.range-btn:last-child { border-radius: 0 6px 6px 0; }
+.range-btn + .range-btn { border-left: none; }
+.range-btn.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.filters { display: flex; gap: 12px; flex-wrap: wrap; }
+.filter-group { display: flex; align-items: center; gap: 6px; }
+.filter-group label { font-size: 13px; color: #64748b; white-space: nowrap; }
+select, input[type="date"] { padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; background: #fff; min-width: 140px; }
+.cards-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+.stat-card { border-radius: 8px; padding: 16px; text-align: center; }
+.stat-card .label { font-size: 12px; color: #64748b; margin-bottom: 6px; }
+.stat-card .value { font-size: 22px; font-weight: 700; }
+.stat-card .unit { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+.c-input { background: #f0f9ff; } .c-input .value { color: #1e40af; }
+.c-cache { background: #fef3c7; } .c-cache .value { color: #92400e; }
+.c-output { background: #f0fdf4; } .c-output .value { color: #166534; }
+.c-total { background: #ede9fe; } .c-total .value { color: #5b21b6; }
+.c-req { background: #fdf2f8; } .c-req .value { color: #9d174d; }
+.chart-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 16px; }
+.chart-card h3 { font-size: 15px; margin-bottom: 12px; color: #1a1a2e; }
+.chart-wrap { height: 280px; }
+.tables-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.table-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 16px; }
+.table-card h3 { font-size: 15px; margin-bottom: 12px; color: #1a1a2e; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 8px; text-align: right; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+th { background: #f8fafc; font-weight: 600; color: #475569; }
+th:first-child, td:first-child { text-align: left; }
+td.total-col { font-weight: 600; color: #5b21b6; }
+.empty { text-align: center; color: #94a3b8; padding: 40px 0; font-size: 14px; }
+.loading { text-align: center; color: #94a3b8; padding: 40px 0; }
+.refresh-btn { padding: 6px 14px; background: #3b82f6; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.refresh-btn:hover { background: #2563eb; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="container">
+    <h1>
+      <span>📊 用量统计</span>
+      <a href="/" class="nav-link">← 返回管理页面</a>
+    </h1>
+
+    <!-- 工具栏：时间范围 + 筛选器 + 刷新 -->
+    <div class="toolbar">
+      <div class="range-btns">
+        <button class="range-btn" :class="{active: rangePreset==='today'}" @click="setRange('today')">今天</button>
+        <button class="range-btn" :class="{active: rangePreset==='7d'}" @click="setRange('7d')">最近7天</button>
+        <button class="range-btn" :class="{active: rangePreset==='30d'}" @click="setRange('30d')">最近30天</button>
+        <button class="range-btn" :class="{active: rangePreset==='custom'}" @click="rangePreset='custom'">自定义</button>
+      </div>
+      <div class="filters">
+        <template v-if="rangePreset==='custom'">
+          <div class="filter-group">
+            <input type="date" v-model="customStart">
+            <span>~</span>
+            <input type="date" v-model="customEnd">
+            <button class="refresh-btn" @click="loadAll">应用</button>
+          </div>
+        </template>
+        <div class="filter-group">
+          <label>供应商</label>
+          <select v-model="filterProviderId" @change="onProviderFilterChange">
+            <option :value="null">全部供应商</option>
+            <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>模型</label>
+          <select v-model="filterModelId" @change="loadAll">
+            <option :value="null">全部模型</option>
+            <option v-for="m in availableModels" :key="m" :value="m">{{ m }}</option>
+          </select>
+        </div>
+        <button class="refresh-btn" @click="loadAll">刷新</button>
+      </div>
+    </div>
+
+    <!-- 汇总卡片 -->
+    <div v-if="loading" class="loading">加载中...</div>
+    <template v-else>
+      <div class="cards-grid">
+        <div class="stat-card c-total">
+          <div class="label">总用量</div>
+          <div class="value">{{ fmt(summary.total_tokens) }}</div>
+          <div class="unit">tokens</div>
+        </div>
+        <div class="stat-card c-input">
+          <div class="label">总输入</div>
+          <div class="value">{{ fmt(summary.total_input_tokens) }}</div>
+          <div class="unit">tokens</div>
+        </div>
+        <div class="stat-card c-cache">
+          <div class="label">缓存命中</div>
+          <div class="value">{{ fmt(summary.total_cache_hit_tokens) }}</div>
+          <div class="unit">tokens ({{ pct(summary.total_cache_hit_tokens, summary.total_tokens) }})</div>
+        </div>
+        <div class="stat-card c-output">
+          <div class="label">总输出</div>
+          <div class="value">{{ fmt(summary.total_output_tokens) }}</div>
+          <div class="unit">tokens</div>
+        </div>
+        <div class="stat-card c-req">
+          <div class="label">请求次数</div>
+          <div class="value">{{ fmt(summary.total_requests) }}</div>
+          <div class="unit">次</div>
+        </div>
+      </div>
+
+      <!-- 趋势图 -->
+      <div class="chart-card">
+        <h3>📈 Token 用量趋势</h3>
+        <div class="chart-wrap"><canvas ref="trendCanvas"></canvas></div>
+      </div>
+
+      <!-- 明细表格 -->
+      <div class="tables-grid">
+        <div class="table-card">
+          <h3>按供应商</h3>
+          <div v-if="usageByProvider.length===0" class="empty">暂无数据</div>
+          <table v-else>
+            <thead><tr>
+              <th>名称</th><th>总量</th><th>输入</th><th>缓存</th><th>输出</th><th>次数</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="item in usageByProvider" :key="item.name">
+                <td>{{ item.name }}</td>
+                <td class="total-col">{{ fmt(item.total_tokens) }}</td>
+                <td>{{ fmt(item.input_tokens) }}</td>
+                <td>{{ fmt(item.cache_hit_tokens) }}</td>
+                <td>{{ fmt(item.output_tokens) }}</td>
+                <td>{{ item.request_count }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-card">
+          <h3>按模型</h3>
+          <div v-if="usageByModel.length===0" class="empty">暂无数据</div>
+          <table v-else>
+            <thead><tr>
+              <th>名称</th><th>总量</th><th>输入</th><th>缓存</th><th>输出</th><th>次数</th>
+            </tr></thead>
+            <tbody>
+              <tr v-for="item in usageByModel" :key="item.name">
+                <td>{{ item.name }}</td>
+                <td class="total-col">{{ fmt(item.total_tokens) }}</td>
+                <td>{{ fmt(item.input_tokens) }}</td>
+                <td>{{ fmt(item.cache_hit_tokens) }}</td>
+                <td>{{ fmt(item.output_tokens) }}</td>
+                <td>{{ item.request_count }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, onMounted, nextTick, computed } = Vue;
+
+createApp({
+  setup() {
+    const rangePreset = ref('7d');
+    const customStart = ref('');
+    const customEnd = ref('');
+    const filterProviderId = ref(null);
+    const filterModelId = ref(null);
+    const providers = ref([]);
+    const allModels = ref([]);  // 全部模型，用于级联
+    const summary = reactive({ total_input_tokens:0, total_cache_hit_tokens:0, total_output_tokens:0, total_tokens:0, total_requests:0 });
+    const usageByProvider = ref([]);
+    const usageByModel = ref([]);
+    const trendDays = ref([]);
+    const loading = ref(false);
+    const trendCanvas = ref(null);
+    let chart = null;
+
+    // 当前可选模型（模型列表来自全部日志，provider 级联在切换时由后端过滤体现）
+    const availableModels = computed(() => allModels.value);
+
+    function todayStr(offsetDays = 0) {
+      const d = new Date();
+      d.setDate(d.getDate() + offsetDays);
+      return d.toISOString().slice(0, 10);
+    }
+
+    function rangeParams() {
+      if (rangePreset.value === 'today') {
+        const t = todayStr(0);
+        return { start_date: t, end_date: t };
+      }
+      if (rangePreset.value === '7d') {
+        return { start_date: todayStr(-6), end_date: todayStr(0) };
+      }
+      if (rangePreset.value === '30d') {
+        return { start_date: todayStr(-29), end_date: todayStr(0) };
+      }
+      // custom
+      return { start_date: customStart.value, end_date: customEnd.value };
+    }
+
+    function filterParams() {
+      const p = {};
+      if (filterProviderId.value !== null) p.provider_id = filterProviderId.value;
+      if (filterModelId.value !== null) p.model_id = filterModelId.value;
+      return p;
+    }
+
+    function fmt(n) {
+      if (n === undefined || n === null) return '0';
+      return Number(n).toLocaleString('zh-CN');
+    }
+    function pct(part, total) {
+      if (!total) return '0%';
+      return (part / total * 100).toFixed(1) + '%';
+    }
+
+    function setRange(preset) {
+      rangePreset.value = preset;
+      loadAll();
+    }
+
+    function onProviderFilterChange() {
+      // 切换供应商时，若当前选中模型不属于该供应商则清空
+      filterModelId.value = null;
+      loadAll();
+    }
+
+    async function fetchJson(url, params) {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) {
+        if (v !== null && v !== undefined && v !== '') qs.append(k, v);
+      }
+      const resp = await fetch(url + '?' + qs.toString());
+      return resp.json();
+    }
+
+    async function loadAll() {
+      loading.value = true;
+      try {
+        const base = { ...rangeParams(), ...filterParams() };
+        const [s, up, um, tr] = await Promise.all([
+          fetchJson('/api/stats/summary', base),
+          fetchJson('/api/stats/usage', { ...base, group_by: 'provider' }),
+          fetchJson('/api/stats/usage', { ...base, group_by: 'model' }),
+          fetchJson('/api/stats/trend', base),
+        ]);
+        Object.assign(summary, s);
+        usageByProvider.value = up.items;
+        usageByModel.value = um.items;
+        trendDays.value = tr.days;
+        await nextTick();
+        renderChart();
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    async function loadProviders() {
+      const resp = await fetch('/api/providers');
+      const data = await resp.json();
+      providers.value = data.providers || data.items || data || [];
+    }
+
+    async function loadModels() {
+      // 从按模型的统计里拿不到全部历史模型（受时间范围影响），
+      // 这里用一个足够大的范围（最近 365 天）取模型列表用于下拉
+      const data = await fetchJson('/api/stats/usage', {
+        start_date: todayStr(-364), end_date: todayStr(0), group_by: 'model',
+      });
+      allModels.value = (data.items || []).map(i => i.name);
+    }
+
+    function renderChart() {
+      const ctx = trendCanvas.value;
+      if (!ctx) return;
+      const labels = trendDays.value.map(d => d.date);
+      const inp = trendDays.value.map(d => d.input_tokens);
+      const cache = trendDays.value.map(d => d.cache_hit_tokens);
+      const out = trendDays.value.map(d => d.output_tokens);
+      const total = trendDays.value.map(d => d.total_tokens);
+
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: '输入', data: inp, backgroundColor: '#3b82f6', stack: 'tokens' },
+            { label: '缓存命中', data: cache, backgroundColor: '#fbbf24', stack: 'tokens' },
+            { label: '输出', data: out, backgroundColor: '#22c55e', stack: 'tokens' },
+            { label: '总用量', data: total, type: 'line', borderColor: '#8b5cf6',
+              backgroundColor: '#8b5cf6', borderDash: [5, 4], tension: 0.3, pointRadius: 3, fill: false },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+          plugins: { tooltip: { mode: 'index', intersect: false } },
+        },
+      });
+    }
+
+    onMounted(async () => {
+      // 下拉数据加载失败不应阻塞主数据加载
+      try { await loadProviders(); } catch (e) { console.error('loadProviders failed', e); }
+      try { await loadModels(); } catch (e) { console.error('loadModels failed', e); }
+      await loadAll();
+    });
+
+    return {
+      rangePreset, customStart, customEnd, filterProviderId, filterModelId,
+      providers, availableModels, summary, usageByProvider, usageByModel,
+      loading, trendCanvas, fmt, pct, setRange, onProviderFilterChange, loadAll,
+    };
+  },
+}).mount('#app');
+</script>
+</body>
+</html>

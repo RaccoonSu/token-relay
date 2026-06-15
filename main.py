@@ -37,5 +37,10 @@ async def index():
     return FileResponse(os.path.join(static_dir, "index.html"))
 
 
+@app.get("/stats")
+async def stats_page():
+    return FileResponse(os.path.join(static_dir, "stats.html"))
+
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=RELAY_PORT, reload=True, use_colors=False)
