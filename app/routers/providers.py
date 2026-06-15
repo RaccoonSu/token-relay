@@ -1,3 +1,4 @@
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -146,3 +147,119 @@ async def remove_mapping(mapping_id: int, db: AsyncSession = Depends(get_db)):
     if not deleted:
         raise HTTPException(status_code=404, detail="Mapping not found")
     return {"ok": True}
+
+
+# --- Known provider model list endpoints ---
+
+# When {base_url}/v1/models returns 404, auto-detect known providers
+# and try their dedicated model list endpoints.
+# Providers that don't support model listing at all
+_UNSUPPORTED_MODELS_PATTERNS = [
+    "token-plan.",  # Bailian Token Plan — separate API key, no /v1/models
+]
+
+# When {base_url}/v1/models returns 404, auto-detect known providers
+# and try their dedicated model list endpoints.
+_KNOWN_PROVIDER_FALLBACKS = [
+    # Alibaba Bailian / DashScope (standard, not Token Plan)
+    ("dashscope.aliyuncs.com", "https://dashscope.aliyuncs.com/compatible-mode/v1/models"),
+    ("maas.aliyuncs.com", "https://dashscope.aliyuncs.com/compatible-mode/v1/models"),
+    # DeepSeek
+    ("api.deepseek.com", "https://api.deepseek.com/v1/models"),
+]
+
+
+def _is_models_unsupported(base_url: str) -> bool:
+    """Check if this provider is known to not support model listing."""
+    return any(p in base_url for p in _UNSUPPORTED_MODELS_PATTERNS)
+
+
+def _resolve_models_url(base_url: str) -> str | None:
+    """Return a fallback models endpoint if base_url matches a known provider."""
+    for domain, fallback_url in _KNOWN_PROVIDER_FALLBACKS:
+        if domain in base_url:
+            return fallback_url
+    return None
+
+
+# --- Provider models endpoint ---
+
+@router.get("/providers/{provider_id}/models")
+async def get_provider_models(provider_id: int, db: AsyncSession = Depends(get_db)):
+    """Fetch available models from the upstream provider's models endpoint."""
+    provider = await get_provider(db, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    # Bail out early for providers known to not support model listing
+    if _is_models_unsupported(provider.base_url):
+        raise HTTPException(
+            status_code=404,
+            detail="该供应商（百炼套餐版）不支持模型列表接口，请手动填写 Model ID",
+        )
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # Step 1: try {base_url}/v1/models (works for Zhipu etc.)
+        target_url = f"{provider.base_url.rstrip('/')}/v1/models"
+        try:
+            response = await client.get(
+                target_url,
+                headers={"x-api-key": provider.api_key},
+            )
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="上游供应商请求超时")
+        except httpx.ConnectError:
+            raise HTTPException(status_code=502, detail="无法连接上游供应商")
+
+        # Step 2: if 404, try known provider fallback
+        if response.status_code == 404:
+            fallback_url = _resolve_models_url(provider.base_url)
+            if fallback_url:
+                try:
+                    response = await client.get(
+                        fallback_url,
+                        headers={"Authorization": f"Bearer {provider.api_key}"},
+                    )
+                except httpx.TimeoutException:
+                    raise HTTPException(status_code=504, detail="上游供应商请求超时")
+                except httpx.ConnectError:
+                    raise HTTPException(status_code=502, detail="无法连接上游供应商")
+
+        if response.status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="该供应商不支持模型列表接口",
+            )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"上游返回 {response.status_code}: {response.text[:500]}",
+            )
+
+    try:
+        body = response.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="上游返回了无效的 JSON")
+
+    # Anthropic /v1/models: {"data": [{"id": "...", ...}]}
+    # OpenAI compatible:   {"data": [{"id": "...", ...}]}
+    # Some providers:      plain list [{"id": "..."}]
+    if isinstance(body, list):
+        models = body
+    elif isinstance(body, dict):
+        models = body.get("data", [])
+    else:
+        models = []
+
+    return {
+        "provider_id": provider.id,
+        "provider_name": provider.name,
+        "models": [
+            {
+                "id": m.get("id", ""),
+                "display_name": m.get("display_name", m.get("name", m.get("id", ""))),
+            }
+            for m in models if isinstance(m, dict) and m.get("id")
+        ],
+    }

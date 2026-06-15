@@ -71,6 +71,17 @@ tr:hover { background: #f8fafc; }
 .expand-row td { padding: 0; border-bottom: 1px solid #e2e8f0; }
 .status-ok { color: #16a34a; }
 .status-err { color: #dc2626; }
+
+/* Model picker */
+.model-picker-toggle { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.model-picker-toggle .btn { white-space: nowrap; }
+.model-list { margin-top: 8px; max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; }
+.model-list-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-size: 13px; display: flex; justify-content: space-between; }
+.model-list-item:last-child { border-bottom: none; }
+.model-list-item:hover { background: #eff6ff; }
+.model-list-item .model-id { font-family: monospace; color: #1e40af; }
+.model-list-item .model-name { color: #64748b; font-size: 12px; }
+.model-list-loading { padding: 16px; text-align: center; color: #94a3b8; }
 </style>
 </head>
 <body>
@@ -255,6 +266,18 @@ tr:hover { background: #f8fafc; }
       <div class="form-group">
         <label>Model ID</label>
         <input v-model="mappingModal.model_id" placeholder="如：claude-sonnet-4-20250514">
+        <div class="model-picker-toggle">
+          <button class="btn btn-ghost btn-sm" :disabled="!mappingModal.provider_id || fetchingModels" @click="fetchProviderModels()">
+            {{ fetchingModels ? '拉取中...' : '从供应商拉取模型列表' }}
+          </button>
+        </div>
+        <div v-if="providerModels.length" class="model-list">
+          <div class="model-list-item" v-for="m in providerModels" :key="m.id" @click="mappingModal.model_id = m.id">
+            <span class="model-id">{{ m.id }}</span>
+            <span class="model-name" v-if="m.display_name && m.display_name !== m.id">{{ m.display_name }}</span>
+          </div>
+        </div>
+        <div v-if="fetchModelsError" style="color:#dc2626;font-size:13px;margin-top:6px;">{{ fetchModelsError }}</div>
       </div>
       <div class="form-group">
         <label>供应商</label>
@@ -291,6 +314,9 @@ createApp({
     // Mappings
     const mappings = ref([])
     const mappingModal = ref(null)
+    const providerModels = ref([])
+    const fetchingModels = ref(false)
+    const fetchModelsError = ref('')
 
     // Logs
     const logs = ref([])
@@ -324,6 +350,8 @@ createApp({
 
     async function saveProvider() {
       const data = providerModal.value
+      if (!data.name.trim()) { alert('请填写供应商名称'); return }
+      if (!data.base_url.trim()) { alert('请填写 Base URL'); return }
       if (data.id) {
         await api(`/api/providers/${data.id}`, { method: 'PUT', body: JSON.stringify(data) })
       } else {
@@ -346,6 +374,8 @@ createApp({
     }
 
     function openMappingModal(m = null) {
+      providerModels.value = []
+      fetchModelsError.value = ''
       if (m) {
         mappingModal.value = { ...m }
       } else {
@@ -353,8 +383,34 @@ createApp({
       }
     }
 
+    async function fetchProviderModels() {
+      const pid = mappingModal.value.provider_id
+      if (!pid) return
+      fetchingModels.value = true
+      fetchModelsError.value = ''
+      providerModels.value = []
+      try {
+        const res = await fetch(`/api/providers/${pid}/models`)
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.detail || `HTTP ${res.status}`)
+        }
+        const data = await res.json()
+        providerModels.value = data.models || []
+        if (!providerModels.value.length) {
+          fetchModelsError.value = '供应商返回了 0 个模型'
+        }
+      } catch (e) {
+        fetchModelsError.value = '拉取失败: ' + e.message
+      } finally {
+        fetchingModels.value = false
+      }
+    }
+
     async function saveMapping() {
       const data = mappingModal.value
+      if (!data.model_id.trim()) { alert('请填写 Model ID'); return }
+      if (!data.provider_id) { alert('请选择供应商'); return }
       if (data.id) {
         await api(`/api/model-mappings/${data.id}`, { method: 'PUT', body: JSON.stringify(data) })
       } else {
@@ -429,10 +485,10 @@ createApp({
     return {
       tab,
       providers, showKeys, providerModal, modalShowKey,
-      mappings, mappingModal,
+      mappings, mappingModal, providerModels, fetchingModels, fetchModelsError,
       logs, logsTotal, logsPage, logsSize, expandedLog, logDetail,
       loadProviders, openProviderModal, saveProvider, removeProvider,
-      loadMappings, openMappingModal, saveMapping, removeMapping,
+      loadMappings, openMappingModal, saveMapping, removeMapping, fetchProviderModels,
       loadLogs, toggleLogDetail, clearLogs, formatTime,
       copyText, copyState,
     }
