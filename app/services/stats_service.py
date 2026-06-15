@@ -91,7 +91,7 @@ async def get_usage_by_dimension(
             select(name, *agg)
             .outerjoin(Provider, RequestLog.provider_id == Provider.id)
             .where(_filters(start, end, provider_id, model_id))
-            .group_by(RequestLog.provider_id)
+            .group_by(name)
             .order_by(func.coalesce(func.sum(_TOTAL), 0).desc())
         )
         return [_row_to_item(row[0], row[1:]) for row in (await db.execute(stmt)).all()]
