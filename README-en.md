@@ -4,6 +4,20 @@ English | **[中文](README.md)**
 
 A lightweight Anthropic API proxy gateway that unifies multiple AI provider endpoints behind a single API. Routes requests by model ID, provides a web UI for configuration, and logs all requests with SSE stream aggregation.
 
+## Why This Project
+
+When using Claude Code with self-hosted API providers (Alibaba Bailian, Zhipu, DeepSeek, etc.), there is a frustrating pain point:
+
+> **Switching providers requires restarting Claude Code CLI.** Every time you use `cc-switch` to change the provider configuration, you must exit and restart Claude Code for the change to take effect. This becomes extremely tedious when you frequently compare or switch between models from different providers.
+
+Token Relay solves this with a simple idea: **aggregate all providers behind a single API endpoint, and route by model ID**. You configure `ANTHROPIC_BASE_URL` once to point at the relay, then switch models directly in your conversation — no config changes, no restarts.
+
+```
+Claude Code ──▶ Token Relay ──┬──▶ Alibaba Bailian (qwen3.7-max)
+   fixed URL                  ├──▶ Zhipu (glm-5)
+                              └──▶ DeepSeek (deepseek-v4-flash)
+```
+
 ---
 
 ## Features

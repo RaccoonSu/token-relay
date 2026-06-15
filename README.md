@@ -4,6 +4,20 @@
 
 一个轻量级的 Anthropic API 中转站，将多个 AI 供应商的 Anthropic 兼容接口统一代理，通过模型 ID 自动路由到对应供应商。支持 Web 界面配置、请求日志记录和 SSE 流式响应聚合。
 
+## 为什么需要这个项目
+
+在使用 Claude Code 接入自有 API（如阿里百炼、智谱、DeepSeek 等国产模型）时，存在一个明显的痛点：
+
+> **切换供应商需要重启 Claude Code CLI。** 每次在 `cc-switch` 中切换不同的供应商配置后，必须退出并重新启动 Claude Code 才能生效。当你需要在多个供应商的模型之间频繁对比或切换时，这个流程非常繁琐。
+
+Token Relay 的思路很简单：**把所有供应商聚合到同一个 API 地址，通过模型 ID 自动路由**。你只需要在 Claude Code 中配置一次 `ANTHROPIC_BASE_URL` 指向中转站，之后直接在对话中切换模型即可，无需改配置、无需重启。
+
+```
+Claude Code ──▶ Token Relay ──┬──▶ 阿里百炼 (qwen3.7-max)
+   固定地址                    ├──▶ 智谱 (glm-5)
+                              └──▶ DeepSeek (deepseek-v4-flash)
+```
+
 ---
 
 ## 功能特性
