@@ -270,11 +270,12 @@ createApp({
         usageByProvider.value = up.items;
         usageByModel.value = um.items;
         trendDays.value = tr.days;
-        await nextTick();
-        renderChart();
       } finally {
         loading.value = false;
       }
+      // canvas 在 v-else 内，必须等 loading 置 false 且 DOM 更新后才能拿到 ref
+      await nextTick();
+      renderChart();
     }
 
     async function loadProviders() {
