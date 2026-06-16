@@ -133,3 +133,45 @@ async def test_get_trend_skips_null_token_rows(db):
     # 旧日志 input/cache/output 都 None -> coalesce 0，total_tokens 0
     assert by_date["2026-06-10"]["total_tokens"] == 0
     assert by_date["2026-06-10"]["request_count"] == 1
+
+
+async def test_get_usage_deleted_provider_merges_into_unknown(db):
+    """已删除供应商的历史日志应合并为单一'未知供应商'分组。"""
+    p1 = Provider(name="供应商A", base_url="http://a", api_key="k1")
+    p2 = Provider(name="供应商B", base_url="http://b", api_key="k2")
+    db.add_all([p1, p2])
+    await db.flush()
+    base = datetime(2026, 6, 10, 12, 0, tzinfo=timezone.utc)
+    # 两条日志分别属于两个供应商
+    db.add_all([
+        _log("model-a", p1.id, 100, 0, 10, base),
+        _log("model-b", p2.id, 200, 0, 20, base),
+    ])
+    # 删除两个供应商（FK 不级联，provider_id 仍指向已删除的行）
+    from sqlalchemy import delete
+    await db.execute(delete(Provider))
+    await db.commit()
+
+    start = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    end = datetime(2026, 6, 11, tzinfo=timezone.utc)
+    result = await stats_service.get_usage_by_dimension(db, start, end, "provider")
+    # 两个已删除供应商应合并为单一"未知供应商"，总量 = 100+10+200+20 = 330，2 次请求
+    assert len(result) == 1
+    assert result[0]["name"] == "未知供应商"
+    assert result[0]["total_tokens"] == 330
+    assert result[0]["request_count"] == 2
+
+
+async def test_get_usage_model_filter(db):
+    """model_id 过滤应只返回指定模型。"""
+    await _seed(db)  # 注入 qwen3.7-max + deepseek-chat
+    start = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    end = datetime(2026, 6, 12, tzinfo=timezone.utc)
+    result = await stats_service.get_usage_by_dimension(
+        db, start, end, "provider", model_id="deepseek-chat"
+    )
+    # 只统计 deepseek-chat 这一个模型：属于 DeepSeek(provider 2)，total = 40+0+10 = 50
+    assert len(result) == 1
+    assert result[0]["name"] == "DeepSeek"
+    assert result[0]["total_tokens"] == 50
+    assert result[0]["request_count"] == 1
