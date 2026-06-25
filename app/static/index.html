@@ -185,9 +185,14 @@ tr:hover { background: #f8fafc; }
   <div v-if="tab === 'logs'">
     <div class="toolbar">
       <span>共 {{ logsTotal }} 条记录</span>
-      <div style="display:flex; gap:8px;">
-        <button class="btn btn-primary" @click="loadLogs()">刷新</button>
-        <button class="btn btn-danger" @click="clearLogs()">清空日志</button>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <label style="display:flex; gap:6px; align-items:center; font-size:14px; color:#475569; cursor:pointer; user-select:none;">
+          <input type="checkbox" v-model="logDetailEnabled" @change="saveLogDetailSetting()"> 存储调用详情
+        </label>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" @click="loadLogs()">刷新</button>
+          <button class="btn btn-danger" @click="clearLogs()">清空日志</button>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -227,16 +232,18 @@ tr:hover { background: #f8fafc; }
                   <div class="log-section">
                     <div class="section-header">
                       <h4>请求体 (Request)</h4>
-                      <button class="btn-copy" :class="{copied: copyState.request}" @click="copyText(JSON.stringify(logDetail.request_body, null, 2), 'request')">复制</button>
+                      <button v-if="logDetail.request_body !== null" class="btn-copy" :class="{copied: copyState.request}" @click="copyText(JSON.stringify(logDetail.request_body, null, 2), 'request')">复制</button>
                     </div>
-                    <pre>{{ JSON.stringify(logDetail.request_body, null, 2) }}</pre>
+                    <pre v-if="logDetail.request_body !== null">{{ JSON.stringify(logDetail.request_body, null, 2) }}</pre>
+                    <pre v-else style="color:#94a3b8; font-style:italic;">（详情未存储：开关已关闭或已过期清理）</pre>
                   </div>
                   <div class="log-section">
                     <div class="section-header">
                       <h4>响应体 (Response)</h4>
-                      <button class="btn-copy" :class="{copied: copyState.response}" @click="copyText(JSON.stringify(logDetail.response_body, null, 2), 'response')">复制</button>
+                      <button v-if="logDetail.response_body !== null" class="btn-copy" :class="{copied: copyState.response}" @click="copyText(JSON.stringify(logDetail.response_body, null, 2), 'response')">复制</button>
                     </div>
-                    <pre>{{ JSON.stringify(logDetail.response_body, null, 2) }}</pre>
+                    <pre v-if="logDetail.response_body !== null">{{ JSON.stringify(logDetail.response_body, null, 2) }}</pre>
+                    <pre v-else style="color:#94a3b8; font-style:italic;">（详情未存储：开关已关闭或已过期清理）</pre>
                   </div>
                   <div v-if="logDetail.error_message" class="log-section">
                     <h4>错误信息</h4>
@@ -364,6 +371,7 @@ createApp({
     const logsSize = 20
     const expandedLog = ref(null)
     const logDetail = ref(null)
+    const logDetailEnabled = ref(false)
 
     async function api(url, options = {}) {
       const res = await fetch(url, {
@@ -483,7 +491,30 @@ createApp({
     }
 
     // --- Logs ---
+    async function loadLogDetailSetting() {
+      try {
+        const data = await api('/api/log-detail-setting')
+        logDetailEnabled.value = !!data.enabled
+      } catch (e) {
+        // 静默失败，不影响日志列表加载
+      }
+    }
+
+    async function saveLogDetailSetting() {
+      const prev = !logDetailEnabled.value
+      try {
+        await api('/api/log-detail-setting', {
+          method: 'PUT',
+          body: JSON.stringify({ enabled: logDetailEnabled.value }),
+        })
+      } catch (e) {
+        logDetailEnabled.value = prev  // 乐观更新失败则回滚
+        alert('保存失败：' + (e && e.message ? e.message : e))
+      }
+    }
+
     async function loadLogs() {
+      await loadLogDetailSetting()
       const data = await api(`/api/logs?page=${logsPage.value}&size=${logsSize}`)
       logs.value = data.items
       logsTotal.value = data.total
@@ -548,6 +579,7 @@ createApp({
       logs, logsTotal, logsPage, logsSize, expandedLog, logDetail,
       loadProviders, openProviderModal, saveProvider, removeProvider,
       loadMappings, openMappingModal, saveMapping, removeMapping, fetchProviderModels,
+      logDetailEnabled, loadLogDetailSetting, saveLogDetailSetting,
       loadLogs, toggleLogDetail, clearLogs, formatTime,
       copyText, copyState,
     }

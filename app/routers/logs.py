@@ -1,13 +1,22 @@
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import RequestLog
+from app.services.log_setting_service import (
+    get_log_detail_enabled,
+    set_log_detail_enabled,
+)
 from app.utils import extract_usage
 
 router = APIRouter(prefix="/api")
+
+
+class LogDetailSettingUpdate(BaseModel):
+    enabled: bool
 
 
 @router.get("/logs")
@@ -88,3 +97,16 @@ async def clear_logs(db: AsyncSession = Depends(get_db)):
     result = await db.execute(delete(RequestLog))
     await db.commit()
     return {"ok": True, "deleted": result.rowcount}
+
+
+@router.get("/log-detail-setting")
+async def get_log_detail_setting(db: AsyncSession = Depends(get_db)):
+    return {"enabled": await get_log_detail_enabled(db)}
+
+
+@router.put("/log-detail-setting")
+async def put_log_detail_setting(
+    data: LogDetailSettingUpdate, db: AsyncSession = Depends(get_db)
+):
+    await set_log_detail_enabled(db, data.enabled)  # 内部已刷新缓存
+    return {"enabled": data.enabled}

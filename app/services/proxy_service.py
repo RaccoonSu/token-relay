@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import async_session
 from app.models import Provider, ModelMapping, RequestLog
+from app.services.log_setting_service import get_log_detail_enabled
 from app.utils import extract_usage
 
 
@@ -110,6 +111,7 @@ async def proxy_non_stream(
     """Forward a non-streaming request and log it."""
     request_id = str(uuid.uuid4())
     start_time = time.time()
+    store_detail = await get_log_detail_enabled()
 
     target_url = f"{provider.base_url.rstrip('/')}/v1/messages"
     headers = {
@@ -122,7 +124,7 @@ async def proxy_non_stream(
         request_id=request_id,
         model_id=request_body.get("model", ""),
         provider_id=provider.id,
-        request_body=request_body,
+        request_body=request_body if store_detail else None,
         is_stream=False,
         client_ip=client_ip,
     )
@@ -143,7 +145,7 @@ async def proxy_non_stream(
         except Exception:
             response_body = {"raw": response.text}
 
-        log_entry.response_body = response_body
+        log_entry.response_body = response_body if store_detail else None
         log_entry.status_code = status_code
         log_entry.duration_ms = duration_ms
 
@@ -196,6 +198,7 @@ async def proxy_stream(
     """Forward a streaming request, yield SSE chunks, and log the aggregated response."""
     request_id = str(uuid.uuid4())
     start_time = time.time()
+    store_detail = await get_log_detail_enabled()
 
     target_url = f"{provider.base_url.rstrip('/')}/v1/messages"
     headers = {
@@ -237,8 +240,8 @@ async def proxy_stream(
                             request_id=request_id,
                             model_id=request_body.get("model", ""),
                             provider_id=provider.id,
-                            request_body=request_body,
-                            response_body=error_body,
+                            request_body=request_body if store_detail else None,
+                            response_body=error_body if store_detail else None,
                             status_code=status_code,
                             is_stream=True,
                             duration_ms=duration_ms,
@@ -296,8 +299,8 @@ async def proxy_stream(
             request_id=request_id,
             model_id=request_body.get("model", ""),
             provider_id=provider.id,
-            request_body=request_body,
-            response_body=aggregated_response,
+            request_body=request_body if store_detail else None,
+            response_body=aggregated_response if store_detail else None,
             status_code=status_code,
             is_stream=True,
             duration_ms=duration_ms,

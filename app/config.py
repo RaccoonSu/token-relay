@@ -16,3 +16,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/token_relay
 # models is instant and requires no Claude Code restart.
 DEFAULT_MODEL_ALIAS = "token-relay-default"
 DEFAULT_TARGET_KEY = "default_target_model_id"
+
+# 日志详情存储（调用参数 request_body / 响应参数 response_body）
+LOG_DETAIL_ENABLED_KEY = "log_detail_enabled"        # AppSetting 中开关的 key
+LOG_DETAIL_RETENTION_HOURS = 24                       # 详情保留时长（写死）
+LOG_DETAIL_CLEANUP_INTERVAL = 6 * 60 * 60             # 后台清理间隔（秒），每 6 小时一次
