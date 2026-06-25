@@ -10,7 +10,6 @@ from app.services.log_setting_service import (
     get_log_detail_enabled,
     set_log_detail_enabled,
 )
-from app.utils import extract_usage
 
 router = APIRouter(prefix="/api")
 
@@ -57,7 +56,16 @@ async def get_logs(
                 "error_message": log.error_message,
                 "created_at": log.created_at.isoformat() if log.created_at else None,
                 "client_ip": log.client_ip,
-                "usage": extract_usage(log.response_body),
+                "usage": (
+                    {
+                        "input_tokens": log.input_tokens,
+                        "cache_hit_tokens": log.cache_hit_tokens,
+                        "output_tokens": log.output_tokens,
+                        "total_tokens": log.total_tokens,
+                    }
+                    if log.total_tokens is not None
+                    else None
+                ),
             }
             for log in logs
         ],

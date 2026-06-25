@@ -16,7 +16,8 @@ from app.config import LOG_DETAIL_CLEANUP_INTERVAL, LOG_DETAIL_RETENTION_HOURS
 from app.database import async_session
 from app.models import RequestLog
 
-logger = logging.getLogger("log_cleanup")
+# 复用 uvicorn 的 logger，使清理日志能在控制台看到（uvicorn 已配置 handler）
+logger = logging.getLogger("uvicorn.error")
 
 
 async def cleanup_old_log_details(db: AsyncSession) -> int:
