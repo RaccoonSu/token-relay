@@ -37,16 +37,17 @@ async def _seed_provider(db):
     return p
 
 
-async def test_non_stream_skips_details_when_disabled(db, monkeypatch):
+async def test_non_stream_skips_details_when_disabled(db, session_maker, monkeypatch):
     await log_setting_service.set_log_detail_enabled(db, False)
     _patch_httpx(monkeypatch, {
         "id": "msg", "type": "message",
         "usage": {"input_tokens": 10, "output_tokens": 5},
     })
     provider = await _seed_provider(db)
+    monkeypatch.setattr(proxy_service, "async_session", session_maker)
 
     body, code = await proxy_service.proxy_non_stream(
-        db, provider, {"model": "m", "x": 1}, "127.0.0.1"
+        provider, {"model": "m", "x": 1}, "127.0.0.1"
     )
 
     assert code == 200
@@ -60,7 +61,7 @@ async def test_non_stream_skips_details_when_disabled(db, monkeypatch):
     assert log.status_code == 200
 
 
-async def test_non_stream_stores_details_when_enabled(db, monkeypatch):
+async def test_non_stream_stores_details_when_enabled(db, session_maker, monkeypatch):
     await log_setting_service.set_log_detail_enabled(db, True)
     resp = {
         "id": "msg", "type": "message",
@@ -68,9 +69,10 @@ async def test_non_stream_stores_details_when_enabled(db, monkeypatch):
     }
     _patch_httpx(monkeypatch, resp)
     provider = await _seed_provider(db)
+    monkeypatch.setattr(proxy_service, "async_session", session_maker)
 
     await proxy_service.proxy_non_stream(
-        db, provider, {"model": "m", "x": 1}, "127.0.0.1"
+        provider, {"model": "m", "x": 1}, "127.0.0.1"
     )
 
     log = (await db.execute(select(RequestLog))).scalar_one()

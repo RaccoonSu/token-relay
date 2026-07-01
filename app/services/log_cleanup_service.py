@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import LOG_DETAIL_CLEANUP_INTERVAL, LOG_DETAIL_RETENTION_HOURS
 from app.database import async_session
+from app.middleware import get_active_request_count
 from app.models import RequestLog
 
 # 复用 uvicorn 的 logger，使清理日志能在控制台看到（uvicorn 已配置 handler）
@@ -42,13 +43,26 @@ async def cleanup_old_log_details(db: AsyncSession) -> int:
     return result.rowcount
 
 
+async def _run_cleanup_tick() -> None:
+    """单次清理决策：有在途请求则跳过，否则执行清理并记录。
+
+    有访问时跳过（debug 记录），避免与代理请求抢 SQLite 写锁，也避免在访问
+    高峰冒出 "cleared 0 rows" 这类噪音日志。
+    """
+    active = get_active_request_count()
+    if active > 0:
+        logger.debug("log detail cleanup: skipped (%s active requests)", active)
+        return
+    async with async_session() as db:
+        n = await cleanup_old_log_details(db)
+        logger.info("log detail cleanup: cleared %s rows", n)
+
+
 async def run_log_cleanup_loop() -> None:
     """后台清理循环：先执行一次，再 sleep，异常不退出。"""
     while True:
         try:
-            async with async_session() as db:
-                n = await cleanup_old_log_details(db)
-                logger.info("log detail cleanup: cleared %s rows", n)
+            await _run_cleanup_tick()
         except asyncio.CancelledError:
             raise
         except Exception as e:

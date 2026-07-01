@@ -103,12 +103,15 @@ def build_aggregated_response(message: dict, content_blocks: list) -> dict:
 
 
 async def proxy_non_stream(
-    db: AsyncSession,
     provider: Provider,
     request_body: dict,
     client_ip: str,
 ) -> tuple[dict, int]:
-    """Forward a non-streaming request and log it."""
+    """Forward a non-streaming request and log it.
+
+    不再接收外部会话：上游 HTTP 调用可能耗时数十秒到数分钟，期间持有
+    连接会拖垮连接池。会话仅在最终写日志时短暂打开。
+    """
     request_id = str(uuid.uuid4())
     start_time = time.time()
     store_detail = await get_log_detail_enabled()
@@ -184,8 +187,9 @@ async def proxy_non_stream(
         log_entry.output_tokens = usage["output_tokens"]
         log_entry.total_tokens = usage["total_tokens"]
 
-    db.add(log_entry)
-    await db.commit()
+    async with async_session() as db:
+        db.add(log_entry)
+        await db.commit()
 
     return response_body, status_code
 

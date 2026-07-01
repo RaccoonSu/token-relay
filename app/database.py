@@ -2,13 +2,16 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.config import DATABASE_URL
 
 # Ensure data directory exists
 os.makedirs("data", exist_ok=True)
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+# NullPool: SQLite 本地文件，开连接便宜；用完即弃，杜绝长耗时上游调用期间
+# 连接被占住导致的 QueuePool 耗尽。
+engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

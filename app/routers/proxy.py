@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import RELAY_API_KEY, DEFAULT_MODEL_ALIAS
-from app.database import get_db
+from app.database import get_db, async_session
 from app.models import Provider, ModelMapping
 from app.services.proxy_service import resolve_provider, proxy_non_stream, proxy_stream
 from app.services.provider_service import get_default_target
@@ -76,7 +76,6 @@ async def list_models(
 @router.post("/v1/messages")
 async def proxy_messages(
     request: Request,
-    db: AsyncSession = Depends(get_db),
     _=Depends(verify_api_key),
 ):
     try:
@@ -88,26 +87,29 @@ async def proxy_messages(
     if not model_id:
         raise HTTPException(status_code=400, detail="Missing 'model' field")
 
-    # Resolve the virtual default alias to whatever real model the user picked
-    # in the management UI. The alias is fixed in Claude Code's slot config;
-    # switching models happens here without any Claude Code restart.
-    if model_id == DEFAULT_MODEL_ALIAS:
-        target = await get_default_target(db)
-        if not target:
-            raise HTTPException(
-                status_code=400,
-                detail=f"默认别名 '{DEFAULT_MODEL_ALIAS}' 尚未配置目标模型，请在管理页面设置",
-            )
-        model_id = target
-        body["model"] = target
+    # 短会话完成 provider 解析后立即归还连接；上游调用期间不再持有 DB 会话。
+    async with async_session() as db:
+        # Resolve the virtual default alias to whatever real model the user picked
+        # in the management UI. The alias is fixed in Claude Code's slot config;
+        # switching models happens here without any Claude Code restart.
+        if model_id == DEFAULT_MODEL_ALIAS:
+            target = await get_default_target(db)
+            if not target:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"默认别名 '{DEFAULT_MODEL_ALIAS}' 尚未配置目标模型，请在管理页面设置",
+                )
+            model_id = target
+            body["model"] = target
 
-    result = await resolve_provider(db, model_id)
-    if not result and model_id.startswith("claude-"):
-        # Claude Code gateway discovery prefixes non-claude ids with "claude-";
-        # strip it so the original mapping can be resolved.
-        result = await resolve_provider(db, model_id[len("claude-"):])
-        if result:
-            body["model"] = model_id[len("claude-"):]
+        result = await resolve_provider(db, model_id)
+        if not result and model_id.startswith("claude-"):
+            # Claude Code gateway discovery prefixes non-claude ids with "claude-";
+            # strip it so the original mapping can be resolved.
+            result = await resolve_provider(db, model_id[len("claude-"):])
+            if result:
+                body["model"] = model_id[len("claude-"):]
+
     if not result:
         raise HTTPException(
             status_code=400,
@@ -129,5 +131,5 @@ async def proxy_messages(
             },
         )
     else:
-        response_body, status_code = await proxy_non_stream(db, provider, body, client_ip)
+        response_body, status_code = await proxy_non_stream(provider, body, client_ip)
         return JSONResponse(content=response_body, status_code=status_code)

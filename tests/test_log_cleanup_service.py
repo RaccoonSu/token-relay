@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from contextlib import asynccontextmanager
 
 from sqlalchemy import insert, null
 
@@ -73,3 +74,46 @@ async def test_cleanup_skips_already_null_rows(db):
     await db.commit()
     n = await log_cleanup_service.cleanup_old_log_details(db)
     assert n == 0
+
+
+async def test_tick_skips_when_active_requests(monkeypatch):
+    # 有在途请求时，本轮清理应整体跳过，不打开会话也不执行清理
+    monkeypatch.setattr(log_cleanup_service, "get_active_request_count", lambda: 3)
+    opened = []
+    called = []
+
+    @asynccontextmanager
+    async def fake_session():
+        opened.append(True)
+        yield None
+
+    async def fake_cleanup(_db):
+        called.append(True)
+        return 0
+
+    monkeypatch.setattr(log_cleanup_service, "async_session", fake_session)
+    monkeypatch.setattr(log_cleanup_service, "cleanup_old_log_details", fake_cleanup)
+
+    await log_cleanup_service._run_cleanup_tick()
+    assert opened == []
+    assert called == []
+
+
+async def test_tick_runs_when_idle(monkeypatch):
+    # 无在途请求时正常执行清理
+    monkeypatch.setattr(log_cleanup_service, "get_active_request_count", lambda: 0)
+    called = []
+
+    @asynccontextmanager
+    async def fake_session():
+        yield "db"
+
+    async def fake_cleanup(db):
+        called.append(db)
+        return 5
+
+    monkeypatch.setattr(log_cleanup_service, "async_session", fake_session)
+    monkeypatch.setattr(log_cleanup_service, "cleanup_old_log_details", fake_cleanup)
+
+    await log_cleanup_service._run_cleanup_tick()
+    assert called == ["db"]
